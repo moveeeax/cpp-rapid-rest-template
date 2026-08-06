@@ -93,8 +93,8 @@ methodology and a results template.
 **Reliability**
 - Retry-with-backoff wrapper (`Retry::run`) transparently applied to
   `Database::execute_read/write` with pqxx / redis transient-error classifiers.
-- Dead-letter queue for jobs (`jobs:dlq:<type>`), with `/api/jobs/dlq` and
-  `/api/jobs/dlq/{id}/requeue` endpoints, and a `jobs_dlq_depth` Prometheus gauge.
+- Dead-letter queue for jobs (`jobs:dlq:<type>`), with `/api/v1/jobs/dlq` and
+  `/api/v1/jobs/dlq/{id}/requeue` endpoints, and a `jobs_dlq_depth` Prometheus gauge.
 - Graceful shutdown: SIGTERM flips `/ready` to 503, then Drogon drains after a
   configurable pre-stop delay. Worker version finishes the in-flight job before exiting.
 
@@ -325,7 +325,7 @@ Default is `none` — every endpoint is public. Flip one env var:
 docker compose run --rm --service-ports \
     -e AUTH_MODE=bearer -e AUTH_BEARER_TOKEN=dev-secret-123 app
 
-curl -H 'Authorization: Bearer dev-secret-123' http://localhost:8080/api/jobs
+curl -H 'Authorization: Bearer dev-secret-123' http://localhost:8080/api/v1/jobs
 ```
 
 Or JWT HS256:
@@ -339,7 +339,7 @@ docker compose run --rm --service-ports \
 
 # Mint a test token from the host; no Python or Node needed
 TOKEN=$(make jwt SECRET=change-me ROLES=admin)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/jobs
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/jobs
 ```
 
 Protected endpoints that require a specific role:
