@@ -25,9 +25,22 @@ compose() {
     fi
 }
 
+# A wrk run full of 500s (or any non-2xx/3xx) still exits 0 — wrk doesn't
+# treat response status as a failure. Fail the run loudly instead of
+# publishing a "successful" trend point full of errors.
+check_wrk_errors() {
+    local file="$1" endpoint="$2"
+    if grep -q 'Non-2xx or 3xx responses' "$file"; then
+        echo "ERROR: $endpoint returned non-2xx/3xx responses during the wrk run:" >&2
+        grep 'Non-2xx or 3xx responses' "$file" >&2
+        exit 1
+    fi
+}
+
 # 1) wrk runs via the existing harness. bench.sh restarts the app with the
 #    baseline config and waits for /ready itself.
 ./scripts/bench.sh baseline /healthz | tee "$OUT_DIR/wrk-healthz.txt"
+check_wrk_errors "$OUT_DIR/wrk-healthz.txt" /healthz
 
 # The trend must measure the 200 path, not a 401/404 fast-path.
 if ! curl -sf "$APP_URL/api/v1/jobs" >/dev/null; then
@@ -35,6 +48,7 @@ if ! curl -sf "$APP_URL/api/v1/jobs" >/dev/null; then
     exit 1
 fi
 ./scripts/bench.sh baseline /api/v1/jobs | tee "$OUT_DIR/wrk-jobs.txt"
+check_wrk_errors "$OUT_DIR/wrk-jobs.txt" /api/v1/jobs
 
 # 2) Runtime image size (bytes → MB).
 image_mb=$(docker image inspect "$BENCH_IMAGE" --format '{{.Size}}' \
@@ -42,10 +56,27 @@ image_mb=$(docker image inspect "$BENCH_IMAGE" --format '{{.Size}}' \
 
 # 3) Cold start: restart the app container, time to first 200 on /ready.
 #    python3 for millisecond timestamps — BSD date has no %N.
-compose stop app >/dev/null 2>&1
+#    bench.sh only exports CONFIG_FILE inside its own process, so the
+#    recreated container here needs its own export to pick up the baseline
+#    preset (otherwise cold start / idle RSS are measured under whatever
+#    config the image defaults to).
+export CONFIG_FILE=config/bench/baseline.json
+compose stop app >/dev/null
 t0=$(python3 -c 'import time; print(int(time.time()*1000))')
-compose up -d app >/dev/null 2>&1
-until curl -sf "$APP_URL/ready" >/dev/null 2>&1; do sleep 0.05; done
+compose up -d app >/dev/null
+ready=0
+for _ in $(seq 1 600); do
+    if curl -sf "$APP_URL/ready" >/dev/null 2>&1; then
+        ready=1
+        break
+    fi
+    sleep 0.05
+done
+if [ "$ready" -ne 1 ]; then
+    echo "ERROR: app did not become ready within ~30s of cold start" >&2
+    compose logs --tail 10 app
+    exit 1
+fi
 t1=$(python3 -c 'import time; print(int(time.time()*1000))')
 cold_ms=$((t1 - t0))
 
@@ -53,7 +84,9 @@ cold_ms=$((t1 - t0))
 sleep 5
 rss_mb=$(docker stats --no-stream --format '{{.MemUsage}}' cpp_api_app \
     | awk -F'[ /]+' '{v=$1
-        if (v ~ /GiB$/) { sub(/GiB$/, "", v); v *= 1024 } else sub(/MiB$/, "", v)
+        if (v ~ /GiB$/) { sub(/GiB$/, "", v); v *= 1024 }
+        else if (v ~ /KiB$/) { sub(/KiB$/, "", v); v /= 1024 }
+        else sub(/MiB$/, "", v)
         printf "%.1f", v}')
 
 # 5) Assemble the two benchmark-action inputs.
