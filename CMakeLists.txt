@@ -32,7 +32,11 @@ add_compile_options(
 
 option(ENABLE_WERROR "Treat warnings as errors (intended for CI)" OFF)
 if(ENABLE_WERROR)
-    add_compile_options(-Werror)
+    # -Wnull-dereference stays a warning: at -O3 GCC raises it from inlined
+    # nlohmann::json internals (via the PCH), and the middle-end diagnostic
+    # escapes -isystem suppression — a known false-positive class we can't
+    # fix in third-party code.
+    add_compile_options(-Werror -Wno-error=null-dereference)
 endif()
 
 # Sanitizer support — when ENABLE_SANITIZERS=ON, build with ASan+UBSan

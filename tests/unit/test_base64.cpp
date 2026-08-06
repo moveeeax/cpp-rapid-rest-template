@@ -20,7 +20,7 @@ using Utils::Base64::url_decode;
 using Utils::Base64::url_encode;
 
 TEST(Base64Test, RoundTrips) {
-    for (const std::string s : {std::string(""),
+    for (const std::string& s : {std::string(""),
                                 std::string("a"),
                                 std::string("ab"),
                                 std::string("abc"),
