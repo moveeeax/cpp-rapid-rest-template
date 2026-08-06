@@ -26,21 +26,6 @@ Measure `/healthz` and a DB-backed route separately: the first isolates the HTTP
 + middleware path, the second includes Postgres/Redis round-trips, so a slow
 number there points at the database, not the framework.
 
-## Continuous benchmarks
-
-A nightly workflow (`.github/workflows/bench-nightly.yml`) runs the `baseline`
-preset on master — wrk against `/healthz` and `/api/v1/jobs` — plus three
-low-noise footprint metrics (runtime image size, cold start to `/ready`, idle
-RSS), and appends every point to a public trend:
-
-**<https://moveeeax.github.io/cpp-rapid-rest-template/dev/bench/>**
-
-Read it as a **trend**, not as absolute numbers: GitHub shared runners are
-noisy (±10–20% between nights is normal). A regression above 30% against the
-previous point opens an alert issue automatically; no PR is ever blocked by
-benchmarks. For absolute numbers on your hardware, run `make bench` as
-described above.
-
 ## Harness
 
 `scripts/bench.sh` drives [wrk](https://github.com/wg/wrk) against the running
@@ -62,6 +47,21 @@ make bench                       # all presets, default endpoint
 ```
 
 Environment overrides: `WRK_THREADS`, `WRK_CONNS`, `WRK_DURATION`, `APP_URL`.
+
+## Continuous benchmarks
+
+A nightly workflow (`.github/workflows/bench-nightly.yml`) runs the `baseline`
+preset on master — wrk against `/healthz` and `/api/v1/jobs` — plus three
+low-noise footprint metrics (runtime image size, cold start to `/ready`, idle
+RSS), and appends every point to a public trend:
+
+**<https://moveeeax.github.io/cpp-rapid-rest-template/dev/bench/>**
+
+Read it as a **trend**, not as absolute numbers: GitHub shared runners are
+noisy (±10–20% between nights is normal). A regression above 30% against the
+previous point opens an alert issue automatically; no PR is ever blocked by
+benchmarks. For absolute numbers on your hardware, run `make bench` as
+described above.
 
 ## Methodology notes
 
