@@ -7,6 +7,7 @@ and start writing endpoints instead of reinventing auth, rate limiting, tracing,
      project name AND the host (pass your domain as the 3rd arg) and then fails
      if any template/author token survived — so a fork won't ship these links. -->
 [![CI](https://github.com/moveeeax/cpp-rapid-rest-template/actions/workflows/ci.yml/badge.svg)](https://github.com/moveeeax/cpp-rapid-rest-template/actions/workflows/ci.yml)
+[![benchmarks](https://img.shields.io/badge/benchmarks-trend-blue)](https://moveeeax.github.io/cpp-rapid-rest-template/dev/bench/)
 [![release](https://img.shields.io/github/v/release/moveeeax/cpp-rapid-rest-template)](https://github.com/moveeeax/cpp-rapid-rest-template/releases)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
 ![Drogon](https://img.shields.io/badge/Drogon-HTTP%20Framework-green.svg)
