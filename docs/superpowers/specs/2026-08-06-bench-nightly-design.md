@@ -25,7 +25,8 @@ regressions — without ever blocking a PR.
   the Wave-0.5 cache — minutes, not a cold vcpkg build) → build `runtime`
   image → `docker compose up` app + Postgres + Redis → `apt install wrk` →
   run measurements → convert → publish via `benchmark-action`.
-- Permissions: `contents: write` (gh-pages push), `issues: write` (alerts).
+- Permissions: `contents: write` (gh-pages push; the benchmark-action posts
+  regression alerts as a commit comment, which needs no extra permission).
 
 ### 2. Measurements (fixed `baseline` preset only)
 
@@ -49,8 +50,9 @@ manual-only via `make bench`.
 - `benchmark-action/github-action-benchmark@<pinned-sha>`: data on `gh-pages`
   branch under `/dev/bench`, auto-push, interactive chart.
 - Alerts: `alert-threshold: 130%`, `comment-on-alert: true`,
-  `fail-on-alert: false` (nightly stays green; the issue is the signal),
-  auto-issue on regression.
+  `fail-on-alert: false` (nightly stays green; the alert commit comment is
+  the signal — the pinned action posts a commit comment on regression, it
+  cannot open issues).
 - One-time setup: enable GitHub Pages for branch `gh-pages` via `gh api`.
 
 ### 4. Publication
@@ -66,13 +68,13 @@ manual-only via `make bench`.
 - Compose or readiness failure → run fails loudly (it's nightly; a red run is
   the alert). wrk parse failure → converter exits non-zero, same effect.
 - Runner noise → absorbed by the 130% threshold and trend averaging; a single
-  noisy point that trips the threshold produces one issue, closed on the next
-  green night (manual close; no auto-close in scope).
+  noisy point that trips the threshold produces one alert commit comment,
+  with nothing to close (no auto-close in scope).
 
 ## Verification
 
 - Two `workflow_dispatch` runs: chart page shows two data points for every
-  series; no alert issue created.
+  series; no alert commit comment posted.
 - Alert threshold logic checked offline against the first run's JSON (feed a
   +40% mutated copy through the converter and the action's dry logic).
 - CI job total stays under ~20 min with warm caches.
@@ -80,7 +82,8 @@ manual-only via `make bench`.
 ## Non-goals
 
 PR benchmark gate, absolute marketing numbers from CI, additional presets in
-CI, auto-closing alert issues, publishing charts anywhere but gh-pages.
+CI, opening or closing GitHub issues on regression, publishing charts
+anywhere but gh-pages.
 
 ## Delivery
 

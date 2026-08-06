@@ -59,9 +59,9 @@ RSS), and appends every point to a public trend:
 
 Read it as a **trend**, not as absolute numbers: GitHub shared runners are
 noisy (±10–20% between nights is normal). A regression above 30% against the
-previous point opens an alert issue automatically; no PR is ever blocked by
-benchmarks. For absolute numbers on your hardware, run `make bench` as
-described above.
+previous point posts an alert commit comment automatically; no PR is ever
+blocked by benchmarks. For absolute numbers on your hardware, run
+`make bench` as described above.
 
 ## Methodology notes
 
