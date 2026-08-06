@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write   # push data points to gh-pages
-  issues: write     # alert issue on regression
 
 concurrency:
   group: bench-nightly
@@ -20,6 +19,9 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # workflow_dispatch from a non-master branch must not pollute the master
+    # trend — the chart and alerts are only meaningful for master history.
+    if: github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
@@ -68,6 +70,21 @@ jobs:
           alert-threshold: '130%'
           comment-on-alert: true
           fail-on-alert: false
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env logs --tail 50 app || true
+          docker compose -f docker/docker-compose.yml --env-file docker/.env logs --tail 50 postgres || true
+          docker compose -f docker/docker-compose.yml --env-file docker/.env logs --tail 50 redis || true
+
+      - name: Upload bench output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: bench-out
+          path: bench-out/
+          if-no-files-found: ignore
 
       - name: Tear down compose stack
         if: always()
