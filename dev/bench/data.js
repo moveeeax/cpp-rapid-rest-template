@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786081023346,
+  "lastUpdate": 1786081024885,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -122,6 +122,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "idle RSS",
             "value": 4,
+            "unit": "MB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bf127824654082a3215ace82c0b3495cf6daceb4",
+          "message": "fix(bench): make bind-mounted logs dir writable for the app container uid (#9)",
+          "timestamp": "2026-08-07T05:17:33Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/bf127824654082a3215ace82c0b3495cf6daceb4"
+        },
+        "date": 1786081024649,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "healthz p50",
+            "value": 6.95,
+            "unit": "ms"
+          },
+          {
+            "name": "healthz p99",
+            "value": 19.53,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p50",
+            "value": 19.54,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p99",
+            "value": 40.72,
+            "unit": "ms"
+          },
+          {
+            "name": "runtime image size",
+            "value": 110.8,
+            "unit": "MB"
+          },
+          {
+            "name": "cold start to /ready",
+            "value": 888,
+            "unit": "ms"
+          },
+          {
+            "name": "idle RSS",
+            "value": 4.2,
             "unit": "MB"
           }
         ]
