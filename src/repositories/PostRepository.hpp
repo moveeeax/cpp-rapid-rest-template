@@ -31,7 +31,8 @@ struct PostNotFound : NotFoundError {
     PostNotFound() : NotFoundError("post") {}
 };
 
-// Public list filter (hybrid contract, spec 2026-07-25): every field optional.
+// Public list filter (hybrid contract — server-side filters + paging): every
+// field optional.
 struct PublicListFilter {
     std::string topic;  // exact; "Other" also matches blank topics
     std::string tag;    // exact tag membership (comma-joined storage)

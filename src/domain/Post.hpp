@@ -21,7 +21,7 @@
 namespace Domain {
 
 // Tags travel between the DB and the domain as one comma-joined TEXT column
-// (tags are constrained keywords with no commas — see migration 007). These two
+// (tags are constrained keywords with no commas — see migration 006). These two
 // helpers are the single split/join boundary; keep them a pair.
 inline std::vector<std::string> split_tags(const std::string& csv) {
     std::vector<std::string> out;

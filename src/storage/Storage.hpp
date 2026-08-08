@@ -64,7 +64,7 @@ public:
 /// Same-origin path prefix under which the backend serves LocalStorage objects
 /// when no CDN/public base URL is configured — see the `GET /uploads/{key}`
 /// route and nginx's `/uploads/` proxy. url() returns `<prefix><key>`, which is
-/// absolute, so a stored `![](…)` still resolves from /blog/<slug> or
+/// absolute, so a stored `![](…)` still resolves from /posts/<slug> or
 /// /admin/media (a bare key did not).
 inline constexpr const char* kLocalPublicPrefix = "/uploads/";
 

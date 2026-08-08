@@ -21,7 +21,12 @@ grew out of this template and is idiomatic to it), trimmed by owner decisions.
 - New `content` section: `content.enabled` (default **false**), env
   `CONTENT_ENABLED` — same pattern as `jobs.enabled`. The flag gates
   registration/behaviour of every route below; with the flag off they all
-  return 404 and sitemap is not served.
+  return 404 — **except `/sitemap.xml`**, which is a site-level artifact and
+  always serves, degrading to a root-only sitemap (no `<url>` entries) rather
+  than 404ing. The guard skips the posts query entirely in that case (not
+  just the response), which is what keeps this 500-safe on a deploy that
+  hasn't run the posts migration yet. Implemented and covered by
+  `tests/integration/test_content_pages.cpp`.
 - Migration `006_add_posts.sql` — single clean migration with the FINAL
   schema (fork's 006 posts + 007 topic tags squashed; leetcode backfills
   008/009 dropped). Always applied; an empty table is harmless.
