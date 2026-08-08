@@ -365,9 +365,9 @@ TEST(HttpE2E, PostMarkdownServedOverWire) {
     REQUIRE_E2E_ENV();
     const auto now = Utils::Time::now_epoch_seconds();
     json admin_claims = {{"sub", "e2e-content-admin"},
-                        {"iat", now},
-                        {"exp", now + 600},
-                        {"permissions", Domain::Permission::kAdminister}};
+                         {"iat", now},
+                         {"exp", now + 600},
+                         {"permissions", Domain::Permission::kAdminister}};
     const auto admin_jwt = Security::Auth::issue_hs256_jwt(admin_claims, kSecret);
 
     auto create = json_post("/api/v1/posts",
@@ -383,8 +383,8 @@ TEST(HttpE2E, PostMarkdownServedOverWire) {
     req->setPath("/posts/e2e-markdown-post");
     auto resp = send(req);
     ASSERT_EQ(resp->statusCode(), k200OK) << resp->getBody();
-    EXPECT_NE(resp->getHeader("content-type").find("text/markdown"), std::string::npos) << resp->getHeader(
-        "content-type");
+    EXPECT_NE(resp->getHeader("content-type").find("text/markdown"), std::string::npos)
+        << resp->getHeader("content-type");
     const std::string body(resp->getBody());
     EXPECT_EQ(body.rfind("# ", 0), 0u) << body;  // starts with "# "
 }
@@ -393,16 +393,14 @@ TEST(HttpE2E, SitemapListsPublishedPost) {
     REQUIRE_E2E_ENV();
     const auto now = Utils::Time::now_epoch_seconds();
     json admin_claims = {{"sub", "e2e-content-admin-2"},
-                        {"iat", now},
-                        {"exp", now + 600},
-                        {"permissions", Domain::Permission::kAdminister}};
+                         {"iat", now},
+                         {"exp", now + 600},
+                         {"permissions", Domain::Permission::kAdminister}};
     const auto admin_jwt = Security::Auth::issue_hs256_jwt(admin_claims, kSecret);
 
-    auto create = json_post("/api/v1/posts",
-                            {{"slug", "e2e-sitemap-post"},
-                             {"title", "E2E Sitemap Post"},
-                             {"body", "Body."},
-                             {"status", "published"}});
+    auto create = json_post(
+        "/api/v1/posts",
+        {{"slug", "e2e-sitemap-post"}, {"title", "E2E Sitemap Post"}, {"body", "Body."}, {"status", "published"}});
     create->addHeader("Authorization", "Bearer " + admin_jwt);
     ASSERT_EQ(send(create)->statusCode(), k201Created);
 
@@ -410,8 +408,8 @@ TEST(HttpE2E, SitemapListsPublishedPost) {
     req->setPath("/sitemap.xml");
     auto resp = send(req);
     ASSERT_EQ(resp->statusCode(), k200OK) << resp->getBody();
-    EXPECT_NE(resp->getHeader("content-type").find("application/xml"), std::string::npos) << resp->getHeader(
-        "content-type");
+    EXPECT_NE(resp->getHeader("content-type").find("application/xml"), std::string::npos)
+        << resp->getHeader("content-type");
     const std::string body(resp->getBody());
     EXPECT_NE(body.find("/posts/e2e-sitemap-post</loc>"), std::string::npos) << body;
 }

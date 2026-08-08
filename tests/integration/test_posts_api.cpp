@@ -152,9 +152,7 @@ TEST_F(PostsApiTest, AdminCrudRoundtrip) {
     EXPECT_EQ(created["status"], "draft");
 
     // Get.
-    auto get_resp = call([&](auto cb) {
-        controller.getPost(TestHelpers::authed(admin.principal), std::move(cb), id);
-    });
+    auto get_resp = call([&](auto cb) { controller.getPost(TestHelpers::authed(admin.principal), std::move(cb), id); });
     ASSERT_EQ(get_resp->statusCode(), k200OK);
     EXPECT_EQ(json::parse(std::string(get_resp->body()))["data"]["slug"], "crud-post");
 
@@ -169,15 +167,13 @@ TEST_F(PostsApiTest, AdminCrudRoundtrip) {
     EXPECT_FALSE(patched["published_at"].is_null());
 
     // Delete.
-    auto del_resp = call([&](auto cb) {
-        controller.deletePost(TestHelpers::authed(admin.principal, Delete), std::move(cb), id);
-    });
+    auto del_resp =
+        call([&](auto cb) { controller.deletePost(TestHelpers::authed(admin.principal, Delete), std::move(cb), id); });
     ASSERT_EQ(del_resp->statusCode(), k200OK);
 
     // Gone.
-    auto gone_resp = call([&](auto cb) {
-        controller.getPost(TestHelpers::authed(admin.principal), std::move(cb), id);
-    });
+    auto gone_resp =
+        call([&](auto cb) { controller.getPost(TestHelpers::authed(admin.principal), std::move(cb), id); });
     EXPECT_EQ(gone_resp->statusCode(), k404NotFound);
 }
 
@@ -232,8 +228,8 @@ TEST_F(PostsApiTest, PublicListShowsOnlyPublished) {
     EXPECT_TRUE(saw_visible);
 
     // Direct slug read on the draft is 404 too — not just absent from the list.
-    auto draft_resp = call(
-        [&](auto cb) { controller.publicGetPost(TestHelpers::make_request(Get), std::move(cb), "pub-hidden"); });
+    auto draft_resp =
+        call([&](auto cb) { controller.publicGetPost(TestHelpers::make_request(Get), std::move(cb), "pub-hidden"); });
     EXPECT_EQ(draft_resp->statusCode(), k404NotFound);
 }
 
@@ -247,9 +243,8 @@ TEST_F(PostsApiTest, PreviewTokenRevealsDraft) {
     EXPECT_EQ(r404->statusCode(), k404NotFound);
 
     // Admin issues a preview token.
-    auto issue_resp = call([&](auto cb) {
-        controller.previewToken(TestHelpers::authed(admin.principal, Post), std::move(cb), id);
-    });
+    auto issue_resp =
+        call([&](auto cb) { controller.previewToken(TestHelpers::authed(admin.principal, Post), std::move(cb), id); });
     ASSERT_EQ(issue_resp->statusCode(), k200OK);
     auto issued = json::parse(std::string(issue_resp->body()));
     const std::string url = issued["data"]["url"];
@@ -295,26 +290,23 @@ TEST_F(PostsApiContentDisabledTest, AllRoutes404WhenContentDisabled) {
     });
     EXPECT_EQ(create_resp->statusCode(), k404NotFound);
 
-    auto get_resp = call([&](auto cb) {
-        controller.getPost(anon, std::move(cb), "00000000-0000-0000-0000-000000000000");
-    });
+    auto get_resp =
+        call([&](auto cb) { controller.getPost(anon, std::move(cb), "00000000-0000-0000-0000-000000000000"); });
     EXPECT_EQ(get_resp->statusCode(), k404NotFound);
 
     auto patch_resp = call([&](auto cb) {
         controller.updatePost(TestHelpers::make_request(Patch, json{{"title", "x"}}),
-                             std::move(cb),
-                             "00000000-0000-0000-0000-000000000000");
+                              std::move(cb),
+                              "00000000-0000-0000-0000-000000000000");
     });
     EXPECT_EQ(patch_resp->statusCode(), k404NotFound);
 
-    auto delete_resp = call([&](auto cb) {
-        controller.deletePost(anon, std::move(cb), "00000000-0000-0000-0000-000000000000");
-    });
+    auto delete_resp =
+        call([&](auto cb) { controller.deletePost(anon, std::move(cb), "00000000-0000-0000-0000-000000000000"); });
     EXPECT_EQ(delete_resp->statusCode(), k404NotFound);
 
-    auto preview_resp = call([&](auto cb) {
-        controller.previewToken(anon, std::move(cb), "00000000-0000-0000-0000-000000000000");
-    });
+    auto preview_resp =
+        call([&](auto cb) { controller.previewToken(anon, std::move(cb), "00000000-0000-0000-0000-000000000000"); });
     EXPECT_EQ(preview_resp->statusCode(), k404NotFound);
 
     auto public_list_resp = call([&](auto cb) { controller.publicListPosts(anon, std::move(cb)); });
