@@ -72,6 +72,8 @@ inline const std::vector<EndpointInfo>& get_endpoints() {
         {"DELETE", "/api/v1/posts/{id}", "Delete post (admin)"},
         {"GET", "/api/v1/public/posts", "List published posts (public; filterable, paged, optional facets)"},
         {"GET", "/api/v1/public/posts/{slug}", "Get published post by slug (public)"},
+        {"GET", "/posts/{slug}", "Published post body as raw Markdown (public)"},
+        {"GET", "/sitemap.xml", "Dynamic sitemap over published posts (public)"},
     };
     return endpoints;
 }

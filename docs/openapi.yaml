@@ -1005,3 +1005,30 @@ paths:
       responses:
         '200': { description: "OK — { data } (+ data.adjacent with include=adjacent)" }
         '404': { description: Not found or not published }
+  /posts/{slug}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Published post body as raw Markdown (public, no auth)
+      tags: [posts]
+      responses:
+        '200':
+          description: "Markdown body: a `# {title}` heading line, a blank line, then the post's raw body"
+          content:
+            text/markdown:
+              schema: { type: string }
+        '404':
+          description: Content module disabled, unknown slug, or the post is a draft — all render the same Markdown 404 body
+          content:
+            text/markdown:
+              schema: { type: string }
+  /sitemap.xml:
+    get:
+      summary: Dynamic sitemap over published posts (public, no auth)
+      tags: [posts]
+      responses:
+        '200':
+          description: "`<urlset>` with the site root plus one `<url>` per published post"
+          content:
+            application/xml:
+              schema: { type: string }
