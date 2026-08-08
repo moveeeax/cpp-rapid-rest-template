@@ -253,7 +253,7 @@ TEST_F(PostsApiTest, PreviewTokenRevealsDraft) {
     ASSERT_EQ(issue_resp->statusCode(), k200OK);
     auto issued = json::parse(std::string(issue_resp->body()));
     const std::string url = issued["data"]["url"];
-    ASSERT_NE(url.find("/blog/preview-wip?preview="), std::string::npos);
+    ASSERT_NE(url.find("/posts/preview-wip?preview="), std::string::npos);
     const std::string token = url.substr(url.find("preview=") + 8);
 
     // Visible with the token.

@@ -196,12 +196,12 @@ public:
             Security::Auth::get().config().jwt_secret, id, Security::Tokens::Purpose::Preview, kPreviewTtl);
         const auto exp = Utils::Time::epoch_to_iso8601(Utils::Time::now_epoch_seconds() + kPreviewTtl.count());
         callback(
-            Response::ok({{"data", {{"url", "/blog/" + found->slug + "?preview=" + token}, {"expires_at", exp}}}}));
+            Response::ok({{"data", {{"url", "/posts/" + found->slug + "?preview=" + token}, {"expires_at", exp}}}}));
     }
 
     // Returns the post for slug honoring an optional ?preview= token:
     // published posts always; a draft only when the token verifies AND is
-    // bound to this post. Shared with the SSR page controller.
+    // bound to this post. Shared with ContentPagesController::post_markdown.
     static std::optional<Domain::Post> resolve_post(const std::string& slug, const std::string& preview) {
         Repositories::PostRepository repo;
         if (preview.empty())

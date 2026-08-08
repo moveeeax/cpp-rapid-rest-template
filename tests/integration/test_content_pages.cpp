@@ -7,8 +7,14 @@
  * with migrations on, content.enabled toggled per fixture. Posts are seeded
  * directly via Repositories::PostRepository — these two handlers carry no
  * auth guard (they're the public content surface), so there's no need to go
- * through PostsController's admin API just to create fixture rows.
+ * through PostsController's admin API just to create fixture rows. A JWT
+ * secret is configured (unrelated to these routes' own auth-free status)
+ * purely so Security::Tokens::issue/verify — the preview-token machinery
+ * post_markdown() now shares with PostsController — has a master secret to
+ * derive from, same as PostsApiTest's kSecret.
  */
+
+#include <chrono>
 
 #include <gtest/gtest.h>
 
@@ -16,12 +22,15 @@
 
 #include "api/ContentPagesController.hpp"
 #include "repositories/PostRepository.hpp"
+#include "security/Tokens.hpp"
 #include "test_helpers.hpp"
 
 using json = nlohmann::json;
 using namespace drogon;
 
 namespace {
+
+constexpr const char* kSecret = "test-jwt-secret-for-content-pages-flow-pad";
 
 // ── Fixture: content module ENABLED ─────────────────────────────────────────
 class ContentPagesTest : public TestHelpers::CoreBackedTest {
@@ -34,6 +43,8 @@ protected:
         cfg["database"]["migrations_enabled"] = true;
         cfg["database"]["migrations_dir"] = "migrations";
         cfg["content"]["enabled"] = true;
+        cfg["auth"]["mode"] = "jwt";
+        cfg["auth"]["jwt"]["secret"] = kSecret;
     }
 
     void SetUp() override {
@@ -69,8 +80,10 @@ protected:
         return created.id;
     }
 
-    HttpResponsePtr getMarkdown(const std::string& slug) {
+    HttpResponsePtr getMarkdown(const std::string& slug, const std::string& preview = "") {
         auto req = TestHelpers::make_request(Get);
+        if (!preview.empty())
+            req->setParameter("preview", preview);
         return call([&](auto cb) { controller.post_markdown(req, std::move(cb), slug); });
     }
 
@@ -114,6 +127,42 @@ TEST_F(ContentPagesTest, MarkdownFourOhFourForUnknownSlug) {
     auto resp = getMarkdown("does-not-exist");
     EXPECT_EQ(resp->statusCode(), k404NotFound);
     EXPECT_EQ(std::string(resp->body()), "# 404\n\nNot found.\n");
+}
+
+// A valid, matching preview token reveals a draft's Markdown; a garbage
+// token behaves exactly like no token at all (404) — same contract
+// PostsApiTest.PreviewTokenRevealsDraft exercises against the JSON route,
+// now proven against the Markdown route that shares the same resolver.
+TEST_F(ContentPagesTest, PreviewTokenServesDraftMarkdown) {
+    const std::string id = seed_post("preview-wip", "WIP", "shh, not published yet.", "draft");
+
+    // Invisible without a token — same as any other draft.
+    auto r404 = getMarkdown("preview-wip");
+    EXPECT_EQ(r404->statusCode(), k404NotFound);
+    EXPECT_EQ(std::string(r404->body()), "# 404\n\nNot found.\n");
+
+    // Visible with a valid token bound to this post's id.
+    const std::string token =
+        Security::Tokens::issue(kSecret, id, Security::Tokens::Purpose::Preview, std::chrono::seconds(3600));
+    auto r_ok = getMarkdown("preview-wip", token);
+    ASSERT_EQ(r_ok->statusCode(), k200OK);
+    EXPECT_NE(r_ok->getHeader("content-type").find("text/markdown"), std::string::npos);
+    EXPECT_EQ(std::string(r_ok->body()), "# WIP\n\nshh, not published yet.");
+
+    // A garbage token is rejected the same as no token — 404, not a 500 or a
+    // leak that the slug exists.
+    auto r_garbage = getMarkdown("preview-wip", "not-a-real-token");
+    EXPECT_EQ(r_garbage->statusCode(), k404NotFound);
+    EXPECT_EQ(std::string(r_garbage->body()), "# 404\n\nNot found.\n");
+
+    // A token bound to a different post id is rejected too (foreign token).
+    const std::string foreign = Security::Tokens::issue(kSecret,
+                                                        "00000000-0000-0000-0000-000000000000",
+                                                        Security::Tokens::Purpose::Preview,
+                                                        std::chrono::seconds(3600));
+    auto r_foreign = getMarkdown("preview-wip", foreign);
+    EXPECT_EQ(r_foreign->statusCode(), k404NotFound);
+    EXPECT_EQ(std::string(r_foreign->body()), "# 404\n\nNot found.\n");
 }
 
 // ── Sitemap ──────────────────────────────────────────────────────────────────

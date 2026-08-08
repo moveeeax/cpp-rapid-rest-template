@@ -940,7 +940,7 @@ paths:
       tags: [posts]
       security: [{ BearerAuth: [] }]
       responses:
-        '200': { description: "{ data: { url: '/blog/<slug>?preview=<token>', expires_at } }" }
+        '200': { description: "{ data: { url: '/posts/<slug>?preview=<token>', expires_at } }" }
         '400': { description: Invalid UUID }
         '403': { description: Not an admin }
         '404': { description: Not found }
@@ -1011,6 +1011,8 @@ paths:
     get:
       summary: Published post body as raw Markdown (public, no auth)
       tags: [posts]
+      parameters:
+        - { name: preview, in: query, schema: { type: string }, description: "Draft preview token (issued via /api/v1/posts/{id}/preview-token); reveals that draft's Markdown when valid; invalid/expired/mismatched behaves like 404" }
       responses:
         '200':
           description: "Markdown body: a `# {title}` heading line, a blank line, then the post's raw body"
@@ -1018,7 +1020,7 @@ paths:
             text/markdown:
               schema: { type: string }
         '404':
-          description: Content module disabled, unknown slug, or the post is a draft — all render the same Markdown 404 body
+          description: Content module disabled, unknown slug, or a draft with no (valid, matching) preview token — all render the same Markdown 404 body
           content:
             text/markdown:
               schema: { type: string }

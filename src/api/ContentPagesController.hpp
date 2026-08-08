@@ -20,6 +20,7 @@
 #include <drogon/HttpController.h>
 #include <drogon/drogon.h>
 
+#include "api/PostsController.hpp"
 #include "core/Core.hpp"
 #include "repositories/PostRepository.hpp"
 #include "utils/Config.hpp"
@@ -36,22 +37,23 @@ public:
     METHOD_LIST_END
 
     // GET /posts/{slug} — the post's raw Markdown body, prefixed by a single
-    // "# {title}" heading line. Published posts only; no ?preview= support
-    // here (that's the admin JSON API's job at
-    // /api/v1/public/posts/{slug}?preview=... — this route is the plain,
-    // cacheable, crawler/renderer-facing surface). Module-off, unknown slug,
-    // and drafts all collapse to the same 404 Markdown body so none of them
-    // leak which case applied.
+    // "# {title}" heading line. Published posts by default; an optional
+    // ?preview=<token> reveals a DRAFT when the token verifies AND is bound
+    // to that post — delegates the published-or-preview resolution to
+    // PostsController::resolve_post, the same helper the admin-issued
+    // preview link (PostsController::previewToken) and the JSON
+    // publicGetPost route share, so all three surfaces agree on what a
+    // preview token unlocks. Module-off, unknown slug, drafts without a
+    // (valid, matching) token, and expired/foreign tokens all collapse to
+    // the same 404 Markdown body so none of them leak which case applied.
     void post_markdown(const HttpRequestPtr& req,
                        std::function<void(const HttpResponsePtr&)>&& callback,
                        const std::string& slug) {
-        (void)req;
         if (!Core::content_enabled()) {
             callback(not_found_markdown());
             return;
         }
-        Repositories::PostRepository repo;
-        auto found = repo.find_published_by_slug(slug);
+        auto found = PostsController::resolve_post(slug, req->getParameter("preview"));
         if (!found) {
             callback(not_found_markdown());
             return;
