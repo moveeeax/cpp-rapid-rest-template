@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <string>
 
 namespace Utils::Time {
@@ -47,6 +48,16 @@ inline std::string pg_to_iso8601(const std::string& ts) {
     else
         out += offset;
     return out;
+}
+
+/// Unix seconds → "YYYY-MM-DDTHH:MM:SSZ" (UTC).
+inline std::string epoch_to_iso8601(std::int64_t secs) {
+    const std::time_t t = static_cast<std::time_t>(secs);
+    std::tm tm{};
+    gmtime_r(&t, &tm);
+    char buf[24];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    return buf;
 }
 
 }  // namespace Utils::Time
