@@ -1034,3 +1034,65 @@ paths:
           content:
             application/xml:
               schema: { type: string }
+  /uploads/{key}:
+    get:
+      summary: Serve a stored upload (public, no auth, local storage backend only)
+      description: >
+        Same-origin read path for the objects written by POST /api/v1/admin/uploads.
+        With no CDN origin configured Storage::url() returns /uploads/<key>, which is
+        what the editor embeds in post bodies, and it must be same-origin because the
+        public-site CSP is "img-src 'self' data:". The key spans path segments
+        (posts/<hex>.<ext>), so the route is registered by regex. Content type comes
+        from the extension allowlist, never from the request. When
+        storage.public_base_url IS set the URLs are absolute and this route answers 404.
+      tags: [uploads]
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string }, description: "Full storage key, e.g. posts/9f2c0a....png" }
+      responses:
+        '200': { description: "The stored object, with Cache-Control: public, max-age=31536000, immutable" }
+        '404': { description: "Content module disabled, unsafe key, extension outside the raster allowlist, no such object, or a CDN origin is configured" }
+        '503': { description: Storage read failed }
+  /api/v1/admin/uploads:
+    post:
+      summary: Upload an image (admin) → { key, url }
+      tags: [uploads]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: "Stored — { data: { key, url } }" }
+        '400': { description: "no_file | unsupported_type (raster only — SVG is rejected) | bad_size (1 byte – 5 MB) | bad_content (magic bytes do not match the extension)" }
+        '403': { description: Not an admin }
+        '404': { description: Content module disabled }
+        '503': { description: Storage backend not configured }
+    get:
+      summary: "Admin: list uploaded images (media library)"
+      tags: [uploads]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: limit,  in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        '200': { description: "{ data: [ { key, name, url, size_bytes, content_type, created_at } ], total, limit, offset } — newest first" }
+        '403': { description: Not an admin }
+        '404': { description: Content module disabled }
+        '503': { description: Storage backend not configured }
+  /api/v1/admin/uploads/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string }, description: Single-segment basename of an upload key (posts/<name>) }
+    delete:
+      summary: "Admin: delete an uploaded image"
+      tags: [uploads]
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Deleted }
+        '400': { description: Name is not a single URL-safe segment }
+        '403': { description: Not an admin }
+        '404': { description: "Content module disabled, or no such upload" }
+        '503': { description: Storage backend not configured }

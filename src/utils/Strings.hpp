@@ -26,6 +26,13 @@ namespace Utils::Strings {
  * link isn't logged in), so they ship public by default. Note the static
  * `*-request` / `confirm-resend` routes are deliberately NOT here:
  * change-email-request and confirm-resend require an authenticated principal.
+ *
+ * `/uploads` is here for the same reason as the posts routes: with the local
+ * storage backend, post bodies embed same-origin image URLs
+ * (UploadController::serveUpload) that anonymous readers have to be able to
+ * fetch.
+ * (Route globs are spelled without the star in this comment on purpose: a
+ * slash-star pair inside a block comment trips -Wcomment, and CI is -Werror.)
  */
 inline constexpr const char* kDefaultPublicPathsCsv =
     "/,/healthz,/ready,/health,/metrics,"
@@ -35,7 +42,7 @@ inline constexpr const char* kDefaultPublicPathsCsv =
     "/api/v1/account/reset-password/*,/api/v1/account/change-email/*,"
     "/api/v1/account/join-from-invite/*,"
     "/api/v1/public/posts,/api/v1/public/posts/*,"
-    "/posts/*,/sitemap.xml";
+    "/posts/*,/sitemap.xml,/uploads/*";
 
 /**
  * @brief Public endpoints that must STILL be rate-limited despite being
