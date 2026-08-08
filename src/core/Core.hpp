@@ -821,4 +821,11 @@ inline bool is_shutting_down() {
     return shutting_down_flag.load();
 }
 
+/// Content module (posts/uploads/sitemap) master switch. Routes are
+/// statically registered, so handlers consult this per-request and 404
+/// when the module is off.
+inline bool content_enabled() {
+    return Config::get().get<bool>("content.enabled", "CONTENT_ENABLED", false);
+}
+
 }  // namespace Core

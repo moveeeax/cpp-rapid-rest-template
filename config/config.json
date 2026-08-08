@@ -157,6 +157,9 @@
     "result_ttl": 86400,
     "max_retries": 3
   },
+  "content": {
+    "enabled": "${CONTENT_ENABLED:-false}"
+  },
   "worker": {
     "id": "worker-1",
     "types": ["default"],
