@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786164039841,
+  "lastUpdate": 1786164042423,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -300,6 +300,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "idle RSS",
             "value": 3.8,
+            "unit": "MB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "id": "f156daacc45bd3d1539aeff7820c846731c4c508",
+          "message": "ci(bench-nightly): restore nightly cron to 03:20 UTC after schedule-path verification",
+          "timestamp": "2026-08-08T03:06:49Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/f156daacc45bd3d1539aeff7820c846731c4c508"
+        },
+        "date": 1786164041709,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "healthz p50",
+            "value": 9.14,
+            "unit": "ms"
+          },
+          {
+            "name": "healthz p99",
+            "value": 21.76,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p50",
+            "value": 23.35,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p99",
+            "value": 50.96,
+            "unit": "ms"
+          },
+          {
+            "name": "runtime image size",
+            "value": 110.8,
+            "unit": "MB"
+          },
+          {
+            "name": "cold start to /ready",
+            "value": 902,
+            "unit": "ms"
+          },
+          {
+            "name": "idle RSS",
+            "value": 4,
             "unit": "MB"
           }
         ]
