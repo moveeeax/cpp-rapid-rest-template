@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786081024885,
+  "lastUpdate": 1786158332328,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -63,6 +63,38 @@ window.BENCHMARK_DATA = {
           {
             "name": "jobs req/s",
             "value": 9738.3,
+            "unit": "req/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "id": "53560dffd71d8ad57fe1703468ce78c03d7e0da5",
+          "message": "ci(bench-nightly): temporarily move cron to 01:00 UTC to verify the schedule path",
+          "timestamp": "2026-08-08T00:47:05Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/53560dffd71d8ad57fe1703468ce78c03d7e0da5"
+        },
+        "date": 1786158330945,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "healthz req/s",
+            "value": 21037.07,
+            "unit": "req/s"
+          },
+          {
+            "name": "jobs req/s",
+            "value": 8497.91,
             "unit": "req/s"
           }
         ]
