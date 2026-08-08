@@ -248,8 +248,8 @@ TEST_F(UploadsApiContentDisabledTest, AllRoutes404WhenContentDisabled) {
 
     // The public serving route is gated too — nothing is reachable while the
     // module is off, not even a previously-stored object.
-    auto serve_resp = call(
-        [&](auto cb) { controller.serveUpload(TestHelpers::make_request(Get), std::move(cb), "posts/x.png"); });
+    auto serve_resp =
+        call([&](auto cb) { controller.serveUpload(TestHelpers::make_request(Get), std::move(cb), "posts/x.png"); });
     EXPECT_EQ(serve_resp->statusCode(), k404NotFound);
 }
 
