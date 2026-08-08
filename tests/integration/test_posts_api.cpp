@@ -218,7 +218,7 @@ TEST_F(PostsApiTest, PublicListShowsOnlyPublished) {
     ASSERT_EQ(resp->statusCode(), k200OK);
     auto body = json::parse(std::string(resp->body()));
     bool saw_visible = false;
-    for (const auto& item : body["items"]) {
+    for (const auto& item : body["data"]) {
         EXPECT_NE(item.value("slug", ""), "pub-hidden");  // draft never leaks into the public list
         if (item.value("slug", "") == "pub-visible") {
             saw_visible = true;
@@ -269,7 +269,7 @@ TEST_F(PostsApiTest, PreviewTokenRevealsDraft) {
 
     // Still absent from the public list even with a live preview token.
     auto list_resp = call([&](auto cb) { controller.publicListPosts(TestHelpers::make_request(Get), std::move(cb)); });
-    for (const auto& item : json::parse(std::string(list_resp->body()))["items"])
+    for (const auto& item : json::parse(std::string(list_resp->body()))["data"])
         EXPECT_NE(item.value("slug", ""), "preview-wip");
 }
 

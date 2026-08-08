@@ -962,9 +962,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [items, page, limit, total]
+                description: >
+                  The template's standard paginated list envelope
+                  ({data, total, limit, offset} — see Response::paginated).
+                  offset is the 0-based equivalent of the request's 1-based
+                  ?page= query param (offset = (page - 1) * limit).
+                required: [data, total, limit, offset]
                 properties:
-                  items:
+                  data:
                     type: array
                     items:
                       type: object
@@ -977,9 +982,9 @@ paths:
                         tags:         { type: array, items: { type: string } }
                         published_at: { type: string, format: date-time, nullable: true }
                         read_mins:    { type: integer }
-                  page:  { type: integer }
-                  limit: { type: integer }
-                  total: { type: integer }
+                  total:  { type: integer }
+                  limit:  { type: integer }
+                  offset: { type: integer }
                   facets:
                     type: object
                     properties:

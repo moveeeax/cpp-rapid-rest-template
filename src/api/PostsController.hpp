@@ -63,13 +63,15 @@ public:
             callback(ErrorResponse::bad_request("invalid_status", "status must be draft or published"));
             return;
         }
-        Repositories::PostRepository repo;
-        auto items = repo.list_admin(f, page.limit, page.offset);
-        long total = repo.count_admin(f);
-        json data = json::array();
-        for (const auto& e : items)
-            data.push_back(e);
-        callback(Response::ok({{"data", data}, {"total", total}, {"limit", page.limit}, {"offset", page.offset}}));
+        with_repo_errors(callback, "listPosts", [&] {
+            Repositories::PostRepository repo;
+            auto items = repo.list_admin(f, page.limit, page.offset);
+            long total = repo.count_admin(f);
+            json data = json::array();
+            for (const auto& e : items)
+                data.push_back(e);
+            callback(Response::ok({{"data", data}, {"total", total}, {"limit", page.limit}, {"offset", page.offset}}));
+        });
     }
 
     void createPost(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
@@ -105,13 +107,15 @@ public:
             callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
             return;
         }
-        Repositories::PostRepository repo;
-        auto found = repo.find(id);
-        if (!found) {
-            callback(ErrorResponse::not_found("post"));
-            return;
-        }
-        callback(Response::ok({{"data", json(*found)}}));
+        with_repo_errors(callback, "getPost", [&] {
+            Repositories::PostRepository repo;
+            auto found = repo.find(id);
+            if (!found) {
+                callback(ErrorResponse::not_found("post"));
+                return;
+            }
+            callback(Response::ok({{"data", json(*found)}}));
+        });
     }
 
     void updatePost(const HttpRequestPtr& req,
@@ -186,17 +190,19 @@ public:
             callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
             return;
         }
-        Repositories::PostRepository repo;
-        auto found = repo.find(id);
-        if (!found) {
-            callback(ErrorResponse::not_found("post"));
-            return;
-        }
-        const auto token = Security::Tokens::issue(
-            Security::Auth::get().config().jwt_secret, id, Security::Tokens::Purpose::Preview, kPreviewTtl);
-        const auto exp = Utils::Time::epoch_to_iso8601(Utils::Time::now_epoch_seconds() + kPreviewTtl.count());
-        callback(
-            Response::ok({{"data", {{"url", "/posts/" + found->slug + "?preview=" + token}, {"expires_at", exp}}}}));
+        with_repo_errors(callback, "previewToken", [&] {
+            Repositories::PostRepository repo;
+            auto found = repo.find(id);
+            if (!found) {
+                callback(ErrorResponse::not_found("post"));
+                return;
+            }
+            const auto token = Security::Tokens::issue(
+                Security::Auth::get().config().jwt_secret, id, Security::Tokens::Purpose::Preview, kPreviewTtl);
+            const auto exp = Utils::Time::epoch_to_iso8601(Utils::Time::now_epoch_seconds() + kPreviewTtl.count());
+            callback(Response::ok(
+                {{"data", {{"url", "/posts/" + found->slug + "?preview=" + token}, {"expires_at", exp}}}}));
+        });
     }
 
     // Returns the post for slug honoring an optional ?preview= token:
@@ -224,34 +230,43 @@ public:
             callback(ErrorResponse::not_found("content"));
             return;
         }
-        // Hybrid contract (spec 2026-07-25): server-side filters + 1-based
-        // paging; facets embedded on demand so the index needs exactly one
-        // request per interaction. limit is hard-clamped to 50 — the old
-        // fetch-the-whole-feed ?limit=1000 pattern is gone.
+        // Hybrid contract: server-side filters + 1-based paging (?page=);
+        // facets embedded on demand so the index needs exactly one request per
+        // interaction. limit is hard-clamped to 50 — the old fetch-the-whole-
+        // feed ?limit=1000 pattern is gone. The RESPONSE envelope is the
+        // template's standard paginated list contract ({data, total, limit,
+        // offset} — see Response::paginated / ErrorResponse.hpp), not a
+        // bespoke shape: offset is the 0-based equivalent of the 1-based page
+        // query param, derived once and reused for both the repo call and the
+        // response body so they can't disagree.
         const int limit = clamp_int(req->getParameter("limit"), 10, 1, 50);
         const int page = clamp_int(req->getParameter("page"), 1, 1, 1000000);
+        const int offset = (page - 1) * limit;
         Repositories::PublicListFilter f;
         f.topic = req->getParameter("topic");
         f.tag = req->getParameter("tag");
         f.q = req->getParameter("q");
 
-        Repositories::PostRepository repo;
-        auto items = repo.list_published_cards(f, limit, (page - 1) * limit);
-        long total = repo.count_published(f);
-        json out = {{"items", json::array()}, {"page", page}, {"limit", limit}, {"total", total}};
-        for (const auto& e : items)
-            out["items"].push_back(e);
+        with_repo_errors(callback, "publicListPosts", [&] {
+            Repositories::PostRepository repo;
+            auto items = repo.list_published_cards(f, limit, offset);
+            long total = repo.count_published(f);
+            json data = json::array();
+            for (const auto& e : items)
+                data.push_back(e);
+            json out = {{"data", data}, {"total", total}, {"limit", limit}, {"offset", offset}};
 
-        if (req->getParameter("include").find("facets") != std::string::npos) {
-            auto [topics, tags] = repo.facets(f);
-            json jt = json::array(), jg = json::array();
-            for (const auto& t : topics)
-                jt.push_back({{"name", t.name}, {"count", t.count}});
-            for (const auto& t : tags)
-                jg.push_back({{"name", t.name}, {"count", t.count}});
-            out["facets"] = {{"topics", jt}, {"tags", jg}};
-        }
-        callback(Response::ok(out));
+            if (req->getParameter("include").find("facets") != std::string::npos) {
+                auto [topics, tags] = repo.facets(f);
+                json jt = json::array(), jg = json::array();
+                for (const auto& t : topics)
+                    jt.push_back({{"name", t.name}, {"count", t.count}});
+                for (const auto& t : tags)
+                    jg.push_back({{"name", t.name}, {"count", t.count}});
+                out["facets"] = {{"topics", jt}, {"tags", jg}};
+            }
+            callback(Response::ok(out));
+        });
     }
 
     void publicGetPost(const HttpRequestPtr& req,
@@ -261,19 +276,22 @@ public:
             callback(ErrorResponse::not_found("content"));
             return;
         }
-        Repositories::PostRepository repo;
-        auto found = resolve_post(slug, req->getParameter("preview"));
-        if (!found) {
-            callback(ErrorResponse::not_found("post"));
-            return;
-        }
-        json data = json(*found);
-        if (req->getParameter("include").find("adjacent") != std::string::npos) {
-            auto [prev, next] = repo.find_adjacent(found->id);
-            data["adjacent"] = {{"prev", prev ? json{{"slug", prev->slug}, {"title", prev->title}} : json(nullptr)},
-                                {"next", next ? json{{"slug", next->slug}, {"title", next->title}} : json(nullptr)}};
-        }
-        callback(Response::ok({{"data", data}}));
+        with_repo_errors(callback, "publicGetPost", [&] {
+            Repositories::PostRepository repo;
+            auto found = resolve_post(slug, req->getParameter("preview"));
+            if (!found) {
+                callback(ErrorResponse::not_found("post"));
+                return;
+            }
+            json data = json(*found);
+            if (req->getParameter("include").find("adjacent") != std::string::npos) {
+                auto [prev, next] = repo.find_adjacent(found->id);
+                data["adjacent"] = {
+                    {"prev", prev ? json{{"slug", prev->slug}, {"title", prev->title}} : json(nullptr)},
+                    {"next", next ? json{{"slug", next->slug}, {"title", next->title}} : json(nullptr)}};
+            }
+            callback(Response::ok({{"data", data}}));
+        });
     }
 
 private:

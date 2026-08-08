@@ -2067,7 +2067,7 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            items: {
+                            data: {
                                 slug: string;
                                 title: string;
                                 summary: string;
@@ -2077,9 +2077,9 @@ export interface paths {
                                 published_at: string | null;
                                 read_mins: number;
                             }[];
-                            page: number;
-                            limit: number;
                             total: number;
+                            limit: number;
+                            offset: number;
                             facets?: {
                                 topics?: {
                                     name?: string;
