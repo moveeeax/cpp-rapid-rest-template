@@ -151,8 +151,8 @@ export const routes: RouteEntry[] = [
     navLabel: 'Audit',
     navIcon: ScrollText,
   },
-  { path: '/admin/posts', element: <AdminPostsPage />, guard: 'admin', navLabel: 'Posts' },
-  { path: '/admin/media', element: <AdminMediaPage />, guard: 'admin', navLabel: 'Media' },
+  { path: '/admin/posts', element: <AdminPostsPage />, guard: 'admin' },
+  { path: '/admin/media', element: <AdminMediaPage />, guard: 'admin' },
 ];
 
 /** The permission a guard implies, for nav-link filtering in Nav.tsx. */
