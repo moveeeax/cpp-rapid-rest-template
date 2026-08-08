@@ -111,7 +111,14 @@ TEST_F(ContentPagesTest, MarkdownBodyExactMatchForPublishedPost) {
 
     auto resp = getMarkdown("markdown-post");
     ASSERT_EQ(resp->statusCode(), k200OK);
-    EXPECT_NE(resp->getHeader("content-type").find("text/markdown"), std::string::npos);
+    // Direct controller invocation never serializes to the wire, so the
+    // content type set via setContentTypeString() doesn't land in the
+    // headers_ map getHeader() reads — it's only materialized into a
+    // "content-type" header during renderToBuffer(). contentTypeString()
+    // is the accessor that works for both direct-invocation (here/other
+    // integration tests) and over-the-wire responses (test_http_e2e.cpp,
+    // where getHeader("content-type") does work).
+    EXPECT_NE(resp->contentTypeString().find("text/markdown"), std::string::npos);
     EXPECT_EQ(std::string(resp->body()), "# Markdown Post\n\nSome **bold** body text.");
 }
 
@@ -146,7 +153,10 @@ TEST_F(ContentPagesTest, PreviewTokenServesDraftMarkdown) {
         Security::Tokens::issue(kSecret, id, Security::Tokens::Purpose::Preview, std::chrono::seconds(3600));
     auto r_ok = getMarkdown("preview-wip", token);
     ASSERT_EQ(r_ok->statusCode(), k200OK);
-    EXPECT_NE(r_ok->getHeader("content-type").find("text/markdown"), std::string::npos);
+    // See MarkdownBodyExactMatchForPublishedPost above on why this reads
+    // contentTypeString() rather than the getHeader("content-type") the
+    // wire-level e2e suite uses.
+    EXPECT_NE(r_ok->contentTypeString().find("text/markdown"), std::string::npos);
     EXPECT_EQ(std::string(r_ok->body()), "# WIP\n\nshh, not published yet.");
 
     // A garbage token is rejected the same as no token — 404, not a 500 or a
@@ -172,7 +182,10 @@ TEST_F(ContentPagesTest, SitemapListsPublishedPostWithLastmod) {
 
     auto resp = getSitemap();
     ASSERT_EQ(resp->statusCode(), k200OK);
-    EXPECT_NE(resp->getHeader("content-type").find("application/xml"), std::string::npos);
+    // See MarkdownBodyExactMatchForPublishedPost above on why this reads
+    // contentTypeString() rather than the getHeader("content-type") the
+    // wire-level e2e suite uses.
+    EXPECT_NE(resp->contentTypeString().find("application/xml"), std::string::npos);
     const std::string body(resp->body());
     EXPECT_NE(body.find("<loc>http://localhost:8080/posts/sitemap-post</loc><lastmod>"), std::string::npos) << body;
 }

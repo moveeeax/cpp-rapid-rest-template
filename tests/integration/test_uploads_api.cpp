@@ -224,7 +224,13 @@ TEST_F(UploadsApiTest, ServeUploadReadsBackStoredBytesOnLocalBackend) {
         TestHelpers::make_request(Get), [&](const HttpResponsePtr& r) { serve_resp = r; }, key);
     ASSERT_EQ(serve_resp->statusCode(), k200OK);
     EXPECT_EQ(std::string(serve_resp->body()), kPngMagic + "payload bytes");
-    EXPECT_EQ(serve_resp->getHeader("content-type"), "image/png");
+    // Direct controller invocation never serializes to the wire, so
+    // setContentTypeString()'s value doesn't land in the headers_ map
+    // getHeader() reads — it's only materialized into a real "content-type"
+    // header during renderToBuffer(). contentTypeString() is the accessor
+    // that works for direct invocation (this suite reads the response
+    // straight from the controller callback, no HTTP client involved).
+    EXPECT_EQ(serve_resp->contentTypeString(), "image/png");
 }
 
 // ── Module gate ────────────────────────────────────────────────────────────
