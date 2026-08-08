@@ -20,6 +20,7 @@
 #include <drogon/HttpController.h>
 #include <drogon/drogon.h>
 
+#include "api/HandlerSupport.hpp"
 #include "api/PostsController.hpp"
 #include "core/Core.hpp"
 #include "repositories/PostRepository.hpp"
@@ -53,16 +54,18 @@ public:
             callback(not_found_markdown());
             return;
         }
-        auto found = PostsController::resolve_post(slug, req->getParameter("preview"));
-        if (!found) {
-            callback(not_found_markdown());
-            return;
-        }
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setBody("# " + found->title + "\n\n" + found->body);
-        // Drogon's CT_* enum has no Markdown entry — set the header directly.
-        resp->setContentTypeString("text/markdown; charset=utf-8");
-        callback(resp);
+        with_repo_errors(callback, "post_markdown", [&] {
+            auto found = PostsController::resolve_post(slug, req->getParameter("preview"));
+            if (!found) {
+                callback(not_found_markdown());
+                return;
+            }
+            auto resp = HttpResponse::newHttpResponse();
+            resp->setBody("# " + found->title + "\n\n" + found->body);
+            // Drogon's CT_* enum has no Markdown entry — set the header directly.
+            resp->setContentTypeString("text/markdown; charset=utf-8");
+            callback(resp);
+        });
     }
 
     // GET /sitemap.xml — home + one <url> per published post (clean
@@ -78,32 +81,35 @@ public:
     // response, is what avoids a 500).
     void sitemap(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
         (void)req;
-        std::vector<Repositories::PostRepository::SitemapEntry> entries;
-        if (Core::content_enabled()) {
-            Repositories::PostRepository repo;
-            entries = repo.list_published_for_sitemap();
-        }
-        const std::string base = base_url();
+        with_repo_errors(callback, "sitemap", [&] {
+            std::vector<Repositories::PostRepository::SitemapEntry> entries;
+            if (Core::content_enabled()) {
+                Repositories::PostRepository repo;
+                entries = repo.list_published_for_sitemap();
+            }
+            const std::string base = base_url();
 
-        std::string xml;
-        xml.reserve(entries.size() * 128 + 256);
-        xml += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-        xml += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
-        xml += "  <url><loc>" + esc(base) + "/</loc><changefreq>monthly</changefreq><priority>1.0</priority></url>\n";
-        for (const auto& e : entries) {
-            xml += "  <url><loc>" + esc(base) + "/posts/" + esc(e.slug) + "</loc>";
-            if (!e.lastmod.empty())
-                xml += "<lastmod>" + e.lastmod + "</lastmod>";
-            xml += "<changefreq>monthly</changefreq><priority>0.6</priority></url>\n";
-        }
-        xml += "</urlset>\n";
+            std::string xml;
+            xml.reserve(entries.size() * 128 + 256);
+            xml += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+            xml += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
+            xml +=
+                "  <url><loc>" + esc(base) + "/</loc><changefreq>monthly</changefreq><priority>1.0</priority></url>\n";
+            for (const auto& e : entries) {
+                xml += "  <url><loc>" + esc(base) + "/posts/" + esc(e.slug) + "</loc>";
+                if (!e.lastmod.empty())
+                    xml += "<lastmod>" + e.lastmod + "</lastmod>";
+                xml += "<changefreq>monthly</changefreq><priority>0.6</priority></url>\n";
+            }
+            xml += "</urlset>\n";
 
-        auto resp = HttpResponse::newHttpResponse();
-        resp->setBody(std::move(xml));
-        resp->setContentTypeString("application/xml; charset=utf-8");
-        // Cheap SQL, but crawlers poll: an hour of caching is plenty fresh.
-        resp->addHeader("Cache-Control", "public, max-age=3600");
-        callback(resp);
+            auto resp = HttpResponse::newHttpResponse();
+            resp->setBody(std::move(xml));
+            resp->setContentTypeString("application/xml; charset=utf-8");
+            // Cheap SQL, but crawlers poll: an hour of caching is plenty fresh.
+            resp->addHeader("Cache-Control", "public, max-age=3600");
+            callback(resp);
+        });
     }
 
 private:

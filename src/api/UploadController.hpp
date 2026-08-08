@@ -155,24 +155,26 @@ public:
             return;
         }
         const auto page = parse_page_params(req, /*default_limit=*/50, /*max_limit=*/200);
-        auto all = Storage::get().list("posts/");
-        json data = json::array();
-        const std::size_t from = std::min<std::size_t>(static_cast<std::size_t>(page.offset), all.size());
-        const std::size_t to = std::min<std::size_t>(from + static_cast<std::size_t>(page.limit), all.size());
-        for (std::size_t i = from; i < to; ++i) {
-            const auto& o = all[i];
-            const std::string name = o.key.substr(o.key.rfind('/') + 1);
-            data.push_back({{"key", o.key},
-                            {"name", name},
-                            {"url", Storage::get().url(o.key)},
-                            {"size_bytes", o.size_bytes},
-                            {"content_type", content_type_for(name)},
-                            {"created_at", o.last_modified}});
-        }
-        callback(Response::ok({{"data", data},
-                               {"total", static_cast<long>(all.size())},
-                               {"limit", page.limit},
-                               {"offset", page.offset}}));
+        with_repo_errors(callback, "listUploads", [&] {
+            auto all = Storage::get().list("posts/");
+            json data = json::array();
+            const std::size_t from = std::min<std::size_t>(static_cast<std::size_t>(page.offset), all.size());
+            const std::size_t to = std::min<std::size_t>(from + static_cast<std::size_t>(page.limit), all.size());
+            for (std::size_t i = from; i < to; ++i) {
+                const auto& o = all[i];
+                const std::string name = o.key.substr(o.key.rfind('/') + 1);
+                data.push_back({{"key", o.key},
+                                {"name", name},
+                                {"url", Storage::get().url(o.key)},
+                                {"size_bytes", o.size_bytes},
+                                {"content_type", content_type_for(name)},
+                                {"created_at", o.last_modified}});
+            }
+            callback(Response::ok({{"data", data},
+                                   {"total", static_cast<long>(all.size())},
+                                   {"limit", page.limit},
+                                   {"offset", page.offset}}));
+        });
     }
 
     // DELETE /api/v1/admin/uploads/{name} — name is the single-segment
@@ -195,12 +197,14 @@ public:
             return;
         }
         const std::string key = "posts/" + name;
-        if (!Storage::get().exists(key)) {
-            callback(ErrorResponse::not_found("upload"));
-            return;
-        }
-        Storage::get().remove(key);
-        callback(Response::ok({{"message", "Upload deleted"}}));
+        with_repo_errors(callback, "deleteUpload", [&] {
+            if (!Storage::get().exists(key)) {
+                callback(ErrorResponse::not_found("upload"));
+                return;
+            }
+            Storage::get().remove(key);
+            callback(Response::ok({{"message", "Upload deleted"}}));
+        });
     }
 
     // GET /uploads/{key} — read an uploaded image back out of local storage.
@@ -218,8 +222,12 @@ public:
         }
         // Traversal guard: keys are opaque ids under posts/. key_is_safe covers
         // "..", a leading '/' or '\', empty and NUL; the backslash can also sit
-        // mid-key on a Windows-style path, so reject it anywhere.
-        if (!Storage::key_is_safe(key) || key.find('\\') != std::string::npos) {
+        // mid-key on a Windows-style path, so reject it anywhere. Every key
+        // `upload` ever writes is "posts/" + a random hex name + extension
+        // (see upload() above) — defense-in-depth pins reads to that same
+        // prefix so this route can never be used to fetch an object stored
+        // under some other prefix a future writer might introduce.
+        if (!Storage::key_is_safe(key) || key.find('\\') != std::string::npos || key.rfind("posts/", 0) != 0) {
             no_such_upload();
             return;
         }
