@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786164042423,
+  "lastUpdate": 1786250546240,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -127,6 +127,38 @@ window.BENCHMARK_DATA = {
           {
             "name": "jobs req/s",
             "value": 8237.81,
+            "unit": "req/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "id": "7385511a6882f41ca8001f594c3990afcc4166f9",
+          "message": "fix(docker): ship ca-certificates in the runtime image\n\nWithout the CA bundle every outbound TLS from the app fails — found live as\nthe Mailer's SMTP STARTTLS to Brevo dying with 'Problem with the SSL CA\ncert'. The reference fork hit and fixed the identical failure in prod; the\nbackport missed it because no task diffed the runtime image stage.",
+          "timestamp": "2026-08-09T04:21:08Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/7385511a6882f41ca8001f594c3990afcc4166f9"
+        },
+        "date": 1786250545645,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "healthz req/s",
+            "value": 21062.67,
+            "unit": "req/s"
+          },
+          {
+            "name": "jobs req/s",
+            "value": 8532.64,
             "unit": "req/s"
           }
         ]
