@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786250546240,
+  "lastUpdate": 1786250548237,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -389,6 +389,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "idle RSS",
             "value": 4,
+            "unit": "MB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "id": "7385511a6882f41ca8001f594c3990afcc4166f9",
+          "message": "fix(docker): ship ca-certificates in the runtime image\n\nWithout the CA bundle every outbound TLS from the app fails — found live as\nthe Mailer's SMTP STARTTLS to Brevo dying with 'Problem with the SSL CA\ncert'. The reference fork hit and fixed the identical failure in prod; the\nbackport missed it because no task diffed the runtime image stage.",
+          "timestamp": "2026-08-09T04:21:08Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/7385511a6882f41ca8001f594c3990afcc4166f9"
+        },
+        "date": 1786250547835,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "healthz p50",
+            "value": 9.13,
+            "unit": "ms"
+          },
+          {
+            "name": "healthz p99",
+            "value": 22.06,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p50",
+            "value": 23.06,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p99",
+            "value": 47.76,
+            "unit": "ms"
+          },
+          {
+            "name": "runtime image size",
+            "value": 113.7,
+            "unit": "MB"
+          },
+          {
+            "name": "cold start to /ready",
+            "value": 830,
+            "unit": "ms"
+          },
+          {
+            "name": "idle RSS",
+            "value": 4.1,
             "unit": "MB"
           }
         ]
