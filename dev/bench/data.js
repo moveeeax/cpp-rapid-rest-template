@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786684470814,
+  "lastUpdate": 1786766742059,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -319,6 +319,38 @@ window.BENCHMARK_DATA = {
           {
             "name": "jobs req/s",
             "value": 12218.26,
+            "unit": "req/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "id": "9535dcb00ff23230cf2d0c7e51be23b93a270c0b",
+          "message": "docs: changelog for 1.5.3",
+          "timestamp": "2026-08-09T11:45:46Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/9535dcb00ff23230cf2d0c7e51be23b93a270c0b"
+        },
+        "date": 1786766740741,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "healthz req/s",
+            "value": 27492.74,
+            "unit": "req/s"
+          },
+          {
+            "name": "jobs req/s",
+            "value": 9681.18,
             "unit": "req/s"
           }
         ]
