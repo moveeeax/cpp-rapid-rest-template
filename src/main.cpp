@@ -30,6 +30,7 @@
 #include "repositories/UserRepository.hpp"
 #include "security/Password.hpp"
 #include "utils/Config.hpp"
+#include "utils/ErrorResponse.hpp"
 
 namespace {
 
@@ -291,6 +292,22 @@ int run_server(const std::string& config_file) {
             std::cout << "SSL enabled" << std::endl;
         }
     }
+
+    // Last-resort translation of an exception that escaped a handler — a
+    // repository call made outside Api::with_repo_errors, say a DB outage past
+    // the retry budget. Without this, Drogon renders its default text/html 500
+    // page and the client suddenly has a second error shape to parse; answer
+    // in the canonical {error,status} envelope instead. Handlers still own
+    // their own specific error mapping.
+    // The callback parameter is generic: Drogon hands it over by rvalue ref.
+    drogon::app().setExceptionHandler([](const std::exception& e, const drogon::HttpRequestPtr& req, auto&& cb) {
+        // Never log req->path() raw — it carries account tokens.
+        spdlog::error("unhandled exception in {} {}: {}",
+                      req->getMethodString(),
+                      Api::normalize_path_for_metrics(req->path()),
+                      e.what());
+        cb(ErrorResponse::internal_error());
+    });
 
     Api::register_controllers();
 

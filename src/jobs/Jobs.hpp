@@ -99,15 +99,19 @@ public:
                               int port,
                               long brpop_timeout_sec,
                               const std::string& password = "",
-                              int pool_size = 4) {
+                              int pool_size = 4,
+                              int db = 0) {
         const auto sock_to = std::chrono::milliseconds((brpop_timeout_sec + 2) * 1000);
         // One blocking connection is held per concurrent worker thread for the
         // duration of its BRPOP — size the pool to concurrency or threads beyond
         // the 4th stall waiting for a connection (silent throughput cliff).
-        blocking_client_ = Cache::make_standalone_client(host, port, pool_size, password, sock_to, sock_to);
+        blocking_client_ = Cache::make_standalone_client(host, port, pool_size, password, sock_to, sock_to, db);
         blocking_client_->ping();
-        spdlog::info(
-            "Jobs blocking Redis client initialized ({}:{}, socket_timeout={}s)", host, port, brpop_timeout_sec + 2);
+        spdlog::info("Jobs blocking Redis client initialized ({}:{}, db={}, socket_timeout={}s)",
+                     host,
+                     port,
+                     db,
+                     brpop_timeout_sec + 2);
     }
 
     /**
@@ -118,14 +122,16 @@ public:
                                        long brpop_timeout_sec,
                                        const std::string& password = "",
                                        const std::string& sentinel_password = "",
-                                       int pool_size = 4) {
+                                       int pool_size = 4,
+                                       int db = 0) {
         const auto sock_to = std::chrono::milliseconds((brpop_timeout_sec + 2) * 1000);
         // Size to worker concurrency — see init_blocking_client.
         blocking_client_ = Cache::make_sentinel_client(
-            master_name, sentinels, pool_size, password, sentinel_password, sock_to, sock_to);
+            master_name, sentinels, pool_size, password, sentinel_password, sock_to, sock_to, db);
         blocking_client_->ping();
-        spdlog::info("Jobs blocking Redis client initialized via Sentinel (master: {}, socket_timeout={}s)",
+        spdlog::info("Jobs blocking Redis client initialized via Sentinel (master: {}, db={}, socket_timeout={}s)",
                      master_name,
+                     db,
                      brpop_timeout_sec + 2);
     }
 

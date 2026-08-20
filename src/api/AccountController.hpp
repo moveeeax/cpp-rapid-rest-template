@@ -216,7 +216,9 @@ public:
         Validation::Errors errs;
         Validation::require(errs, body, "new_email");
         Validation::email(errs, body, "new_email");
-        Validation::require(errs, body, "password");
+        // require_string: a non-string password reaches get<std::string>()
+        // below and throws type_error.302 → bare 500 instead of a 400.
+        Validation::require_string(errs, body, "password");
         if (errs.any()) {
             callback(Validation::response_400(errs));
             return;
@@ -342,7 +344,10 @@ public:
         if (!Validation::parse_body(req, body, callback))
             return;
         Validation::Errors errs;
-        Validation::require(errs, body, "old_password");
+        // require_string on old_password: only new_password has a length
+        // validator to reject a non-string, so an int here used to reach
+        // get<std::string>() and throw type_error.302 → bare 500.
+        Validation::require_string(errs, body, "old_password");
         Validation::require(errs, body, "new_password");
         Validation::string_length(errs, body, "new_password", Validation::kPasswordMinLen, Validation::kPasswordMaxLen);
         if (errs.any()) {

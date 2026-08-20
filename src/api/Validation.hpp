@@ -93,6 +93,25 @@ inline bool require(Errors& errs, const json& body, const std::string& field) {
 }
 
 /**
+ * @brief Require a field to be present, non-null AND a JSON string.
+ * @details `require()` alone only proves presence, so a wrong-typed field
+ *          (`{"password": 123}`) sails through and the handler's bare
+ *          `body[f].get<std::string>()` throws nlohmann's type_error.302 —
+ *          which escapes as a bare 500 instead of the 400 envelope, on
+ *          unauthenticated paths included. Use this wherever the value is
+ *          read as a string without a length/format validator downstream.
+ */
+inline bool require_string(Errors& errs, const json& body, const std::string& field) {
+    if (!require(errs, body, field))
+        return false;
+    if (!body[field].is_string()) {
+        errs.add(field, "not_string", "must be a string");
+        return false;
+    }
+    return true;
+}
+
+/**
  * @brief Require a string field within [min, max] length. Non-strings fail
  *        with code "not_string". Missing fields are no-op (pair with require).
  */
@@ -144,6 +163,18 @@ inline void int_range(Errors& errs, const json& body, const std::string& field, 
     } else if (v > max_val) {
         errs.add(field, "above_max", "max " + std::to_string(max_val));
     }
+}
+
+/**
+ * @brief Require a boolean field when present. Missing/null is a no-op.
+ *        Pair with a `contains() && is_boolean()` read — `body.value(f, false)`
+ *        throws type_error.302 on a non-boolean (and on an explicit null).
+ */
+inline void boolean(Errors& errs, const json& body, const std::string& field) {
+    if (!body.contains(field) || body[field].is_null())
+        return;
+    if (!body[field].is_boolean())
+        errs.add(field, "not_boolean", "must be a boolean");
 }
 
 /**

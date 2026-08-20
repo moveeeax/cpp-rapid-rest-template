@@ -240,6 +240,26 @@ TEST(HttpE2E, NonJsonContentTypeRejectedWith415) {
     req->setContentTypeCode(CT_TEXT_PLAIN);
     auto resp = send(req);
     EXPECT_EQ(resp->statusCode(), k415UnsupportedMediaType);
+    // Short-circuited responses (sync advices skip the whole post-handling
+    // chain) must still carry the observability + security headers —
+    // middleware::short_circuit replays them. Before it existed, a 415/401/429
+    // had no request id, no headers, no log line, no metric sample.
+    EXPECT_FALSE(resp->getHeader("x-request-id").empty());
+    EXPECT_EQ(resp->getHeader("x-content-type-options"), "nosniff");
+}
+
+TEST(HttpE2E, ContentTypeComparisonIsCaseInsensitive) {
+    // RFC 9110 §8.3.1: media types/subtypes are case-insensitive, so
+    // `Application/JSON` is legal and must NOT 415. (It reaches the login
+    // handler, which answers 400/401 for the junk credentials.)
+    REQUIRE_E2E_ENV();
+    auto req = HttpRequest::newHttpRequest();
+    req->setMethod(Post);
+    req->setPath("/api/v1/auth/login");
+    req->setBody(R"({"email":"nobody@example.com","password":"wrong-password"})");
+    req->setContentTypeString("Application/JSON; charset=UTF-8");
+    auto resp = send(req);
+    EXPECT_NE(resp->statusCode(), k415UnsupportedMediaType);
 }
 
 TEST(HttpE2E, MultipartPassesContentTypeGate) {
@@ -265,6 +285,10 @@ TEST(HttpE2E, AuthMiddlewareGuardsNonPublicPaths) {
     auto resp = send(req);
     EXPECT_EQ(resp->statusCode(), k401Unauthorized);
     EXPECT_FALSE(resp->getHeader("www-authenticate").empty());
+    // The auth advice short-circuits before any pre/post advice — the reply
+    // must still be observable and hardened (see middleware::short_circuit).
+    EXPECT_FALSE(resp->getHeader("x-request-id").empty());
+    EXPECT_EQ(resp->getHeader("x-content-type-options"), "nosniff");
 }
 
 TEST(HttpE2E, AccountTokenRoutesArePublic) {
