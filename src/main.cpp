@@ -31,6 +31,7 @@
 #include "security/Password.hpp"
 #include "utils/Config.hpp"
 #include "utils/ErrorResponse.hpp"
+#include "utils/Redact.hpp"
 
 namespace {
 
@@ -117,12 +118,16 @@ int run_migrate_only(const std::string& config_file) {
     return 0;
 }
 
-// Resolve the config (JSON + env overrides) and print it. Keeps
+// Resolve the config (JSON + env overrides) and print it, with credentials
+// masked — Config::load_from_file expands ${VAR} placeholders in place, so
+// the raw tree holds the real DB/Redis/SMTP/S3/JWT secrets. Keeps
 // Observability/DB/etc. offline — safe to run against a production config
 // file without side effects.
 int run_dump_config(const std::string& config_file) {
     Config::initialize(config_file);
-    std::cout << Config::get().get_json().dump(2) << std::endl;
+    nlohmann::json redacted = Config::get().get_json();
+    Utils::Redact::mask_secrets(redacted);
+    std::cout << redacted.dump(2) << std::endl;
     Config::shutdown();
     return 0;
 }

@@ -58,14 +58,9 @@ protected:
         if (::testing::Test::IsSkipped())
             return;
 
-        Database::get().execute_write([](auto& txn) {
-            txn.exec("TRUNCATE TABLE users CASCADE");
-            // Drop extra roles inserted by prior test bodies (e.g. "Editor")
-            // so create() can re-add them. The two seed roles from migration
-            // 001 (ON CONFLICT DO NOTHING) are kept stable.
-            txn.exec("DELETE FROM roles WHERE name NOT IN ('User', 'Administrator')");
-            return 0;
-        });
+        // Extra roles from prior test bodies (e.g. "Editor") go with the wipe;
+        // the two seed roles from migration 001 are kept/re-seeded.
+        TestHelpers::wipe_app_data();
     }
 
     /// Create a user with the named role and return both the row and a

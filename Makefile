@@ -190,9 +190,12 @@ lint-openapi:      ## Run spectral lint over docs/openapi.yaml
 ci-local:          ## Reproduce CI locally: format check + drift + spectral + tidy + tests
 	@echo "==> [1/6] clang-format check"
 	@$(MAKE) --no-print-directory lint-format
-	@echo "==> [2/6] OpenAPI drift + routes registered"
+	@echo "==> [2/6] OpenAPI drift + routes + buckets + version + nginx sync"
 	@./scripts/check-openapi-drift.sh
 	@./scripts/check-routes-registered.sh
+	@./scripts/check-test-buckets.sh
+	@./scripts/check-version-sync.sh
+	@./scripts/check-frontend-nginx-sync.sh
 	@echo "==> [3/6] helm render validate"
 	@$(MAKE) --no-print-directory helm-validate
 	@echo "==> [4/6] spectral lint"
@@ -210,7 +213,7 @@ helm-lint:         ## helm lint + helm template render for both charts
 			echo "==> helm lint $$chart" ; \
 			helm lint "$$chart" || exit 1 ; \
 			echo "==> helm template $$chart (smoke)" ; \
-			helm template _smoke "$$chart" >/dev/null || exit 1 ; \
+			helm template smoke "$$chart" >/dev/null || exit 1 ; \
 		fi ; \
 	done
 	@echo "==> helm-lint: all charts pass"

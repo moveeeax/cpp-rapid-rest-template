@@ -12,10 +12,16 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Extract suite names (TEST_F and TEST) per bucket directory
+# Extract suite names (TEST_F and TEST) from every directory argument.
+# HAS to iterate "$@": this used to read only "$1", so the tests/api/ bucket
+# passed as the second argument was silently never scanned — the exact
+# "green gate that checks nothing" failure this script exists to prevent
+# (found in the downstream audit, tarassov.me 33e108e class).
 suites_from_dir() {
-    local dir="$1"
-    grep -rhoE 'TEST(_F)?\([A-Za-z0-9_]+,' "$dir" 2>/dev/null \
+    local dir
+    for dir in "$@"; do
+        grep -rhoE 'TEST(_F)?\([A-Za-z0-9_]+,' "$dir" 2>/dev/null || true
+    done \
         | sed 's/TEST_F(//; s/TEST(//; s/,//' \
         | sort -u
 }

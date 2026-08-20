@@ -117,6 +117,10 @@ services:
     environment:
       - TEST_PG_HOST=test-postgres
       - TEST_REDIS_HOST=test-redis
+      # Set by ci.yml: makes missing Postgres/Redis FAIL the suites instead of
+      # SKIP-and-report-green (see test_helpers.hpp). Empty locally = old
+      # skip-friendly behavior.
+      - CI_REQUIRE_INFRA=${CI_REQUIRE_INFRA:-}
       # No DB_MIGRATIONS_ENABLED=false here: env overrides JSON config, and
       # the fresh test-postgres relies on suites running MigrationRunner to
       # provision the schema (the shared dev postgres used to get it from an

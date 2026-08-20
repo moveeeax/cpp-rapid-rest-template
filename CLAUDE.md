@@ -40,13 +40,19 @@ gates by construction. Hand-rolled versions usually don't.
 7. **No secrets in tracked files:** `config/config.json` holds `${VAR}`
    placeholders, env overrides everything (`docs/CONFIG.md` is the full
    table). gitleaks gates CI; `make prod-check` gates the prod profile.
+   Helm credential defaults stay EMPTY (deploys pass them via `--set`;
+   `scripts/check-helm-render.sh` asserts no tracked overlay renders a
+   non-empty credential Secret). In `.gitleaks.toml` the `[extend]
+   useDefault` block is load-bearing — without it gitleaks v8 scans with
+   zero rules; allowlist by VALUE regex, never by path.
 8. **Commits:** conventional commits, no AI-attribution trailers.
 
 ## Gate sequence — run cheapest-first before pushing
 
 1. `make fmt` — clang-format in place
 2. `./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
-   && ./scripts/check-test-buckets.sh` — seconds, no build
+   && ./scripts/check-test-buckets.sh && ./scripts/check-version-sync.sh
+   && ./scripts/check-frontend-nginx-sync.sh` — seconds, no build
 3. `make lint-openapi` — spectral over `docs/openapi.yaml`
 4. `make test-quick` — cached test image, ~5 s
 5. `make test` — full rebuild + suite, ~2 min; what CI runs
@@ -62,6 +68,11 @@ helm-render and the OpenAPI-drift gate.
   `docker/Dockerfile` by hand — Renovate owns them, and a baseline bump
   rebuilds the entire dependency world.
 - Don't weaken `config/config.production.json` — `make prod-check` gates it.
+- Don't bump `version` in `vcpkg.json` — the Dockerfile keys the whole
+  dependency-install layer on that manifest, so touching it rebuilds ~29
+  packages and blows CI timeouts. The release version lives in
+  `CMakeLists.txt` `project(VERSION …)` and must match the newest
+  CHANGELOG heading (`scripts/check-version-sync.sh` gates it).
 - Don't change the error-response shape without updating `docs/openapi.yaml`.
 
 ## Self-maintenance
