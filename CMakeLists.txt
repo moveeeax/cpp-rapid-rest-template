@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.21)
-project(cpp_api_template VERSION 1.4.0 LANGUAGES CXX)
+project(cpp_api_template VERSION 1.5.3 LANGUAGES CXX)
+
+# Release builds stamp the git tag in instead of the baked value above:
+# docker/Dockerfile declares ARG APP_VERSION and forwards it as
+# -DPROJECT_VERSION_OVERRIDE, and .github/workflows/release.yml passes the tag.
+# The baked value is the fallback for every non-tag build, so it must equal the
+# newest CHANGELOG release heading — scripts/check-version-sync.sh gates that
+# in CI (it sat three releases stale at 1.4.0 with nothing checking).
+if(PROJECT_VERSION_OVERRIDE)
+    set(PROJECT_VERSION "${PROJECT_VERSION_OVERRIDE}")
+    message(STATUS "Application version overridden by build arg: ${PROJECT_VERSION}")
+endif()
 
 # Set C++20 standard
 set(CMAKE_CXX_STANDARD 20)
