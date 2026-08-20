@@ -40,6 +40,11 @@ gates by construction. Hand-rolled versions usually don't.
 7. **No secrets in tracked files:** `config/config.json` holds `${VAR}`
    placeholders, env overrides everything (`docs/CONFIG.md` is the full
    table). gitleaks gates CI; `make prod-check` gates the prod profile.
+   Helm credential defaults stay EMPTY (deploys pass them via `--set`;
+   `scripts/check-helm-render.sh` asserts no tracked overlay renders a
+   non-empty credential Secret). In `.gitleaks.toml` the `[extend]
+   useDefault` block is load-bearing — without it gitleaks v8 scans with
+   zero rules; allowlist by VALUE regex, never by path.
 8. **Commits:** conventional commits, no AI-attribution trailers.
 
 ## Gate sequence — run cheapest-first before pushing
