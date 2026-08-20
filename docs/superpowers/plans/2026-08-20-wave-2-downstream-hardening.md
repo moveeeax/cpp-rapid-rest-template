@@ -156,3 +156,18 @@ Self-review notes: waves are ordered so every later PR is protected by the
 gates the earlier ones add (e.g. A1's credential assert guards F1's values
 edits; B1's buckets fix guards D1's new tests). Each PR is independently
 mergeable and reversible.
+
+---
+
+## Status — 2026-08-21: EXECUTED
+
+All waves landed on master, each PR green in CI before merge:
+A1 #17, A2 #18, B #19, C #21, D #20, E #23, F #22, G #27.
+Post-merge live smoke of the helm changes ran on talos-nbg1 (scratch
+namespace, deleted after): 9/9 pods healthy, register/login OK with --set
+credentials, ingress guard verified in-cluster.
+
+Deferred to issues: #24 (billing module), #25 (multi-tenant starter),
+#26 (rendered-artifact gate with mandatory selftest).
+Audit no-ops (already fixed upstream before this wave): pqxx exec_params
+migration, GCC13 -Wno-error pair.
