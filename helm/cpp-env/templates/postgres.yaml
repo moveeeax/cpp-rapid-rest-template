@@ -1,5 +1,10 @@
 # Per-env CloudNativePG cluster → pg-rw (primary) + pg-ro (replicas). The app
 # role/password come from the pg-app secret below (mirrors credentials.dbPassword).
+# Gated on postgres.enabled (same idiom as redis/kafka) — off when a release
+# points at an existing shared Postgres instead. Without the guard every helm
+# upgrade silently recreated the placeholder cluster (downstream bump:
+# cyber-accountant b5586d2, manual kubectl cleanup after each deploy).
+{{- if .Values.postgres.enabled }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -37,3 +42,4 @@ spec:
   affinity:
     nodeSelector:
       kubernetes.io/arch: amd64
+{{- end }}
