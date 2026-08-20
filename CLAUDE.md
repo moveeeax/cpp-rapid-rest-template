@@ -49,7 +49,8 @@ gates by construction. Hand-rolled versions usually don't.
 
 ## Gate sequence — run cheapest-first before pushing
 
-1. `make fmt` — clang-format in place
+1. `make fmt` — clang-format in place (refuses to run unless clang-format
+   is major 17, the CI pin; fix: `pip install clang-format==17.0.6`)
 2. `./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
    && ./scripts/check-test-buckets.sh` — seconds, no build
 3. `make lint-openapi` — spectral over `docs/openapi.yaml`

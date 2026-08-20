@@ -70,6 +70,7 @@ question instead of grepping the tree.
 | File | What's there |
 |---|---|
 | [`../.github/workflows/ci.yml`](../.github/workflows/ci.yml) | GitHub Actions CI: build + test + format + secret-scan |
+| [`CI-PROFILES.md`](CI-PROFILES.md) | Hosted vs self-hosted runner profiles: serialize-vs-parallel, cache layers, honest timeouts, retry policy, why arm64/QEMU is out |
 | [`../.github/workflows/release.yml`](../.github/workflows/release.yml) | Tag-driven multi-arch image build + draft release |
 | [`../helm/cpp-api/`](../helm/cpp-api/) | API Helm chart |
 | [`../helm/cpp-worker/`](../helm/cpp-worker/) | Worker Helm chart |

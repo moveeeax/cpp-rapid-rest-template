@@ -161,8 +161,22 @@ test-quick:        ## Re-run tests against existing image (no rebuild, ~5 s)
 test-unit:         ## Run only unit tests (no Postgres/Redis needed at runtime)
 	$(COMPOSE) $(ENV) --profile test run --rm -e TEST_BINARY=cpp_api_template_tests_unit test-runner
 
+# CI pins clang-format 17 (.github/workflows/ci.yml). A different MAJOR version
+# reformats code CI then rejects — running `make fmt` with clang-format 22 once
+# rewrote 18 unrelated files downstream and cost three red CI rounds
+# (cyber-accountant 7424af4). Refuse to run with anything but the pin.
+CLANG_FORMAT_MAJOR := 17
+
+define require_clang_format_17
+	clang-format --version | grep -qE 'version $(CLANG_FORMAT_MAJOR)\.' || { \
+		echo "ERROR: clang-format $(CLANG_FORMAT_MAJOR) required (CI pin), found: $$(clang-format --version)"; \
+		echo "Fix:   pip install clang-format==17.0.6   (or uninstall local clang-format to use the silkeh/clang:17 Docker fallback)"; \
+		exit 1; }
+endef
+
 lint-format:       ## Check clang-format compliance across src/ and tests/
 	@if command -v clang-format >/dev/null 2>&1; then \
+		$(require_clang_format_17); \
 		find src tests -type f \( -name '*.hpp' -o -name '*.cpp' -o -name '*.h' \) \
 			-exec clang-format --dry-run --Werror --style=file {} + ; \
 	else \
@@ -173,6 +187,7 @@ lint-format:       ## Check clang-format compliance across src/ and tests/
 
 lint-format-fix:   ## Rewrite src/ and tests/ in place using clang-format
 	@if command -v clang-format >/dev/null 2>&1; then \
+		$(require_clang_format_17); \
 		find src tests -type f \( -name '*.hpp' -o -name '*.cpp' -o -name '*.h' \) \
 			-exec clang-format -i --style=file {} + ; \
 	else \

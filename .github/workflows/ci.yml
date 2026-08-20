@@ -21,7 +21,11 @@ jobs:
     # with sanitizers and links the test binary), then runs the full gtest
     # suite against ephemeral Postgres + Redis containers via the `test`
     # compose profile — the same thing `make test` does locally.
-    timeout-minutes: 60
+    # 90, not 60: after a vcpkg baseline bump BOTH cache layers (gha + GHCR)
+    # are cold and the ~35-min dependency world rebuilds before a single test
+    # runs. A job killed before it exports the gha cache leaves the NEXT run
+    # cold too — the timeout must let a cold build finish once.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -184,7 +188,9 @@ jobs:
     # compile_commands.json so the analysis sees the real include paths
     # vcpkg resolved. Best-effort: warnings don't gate yet, the .clang-tidy
     # baseline is still being tightened.
-    timeout-minutes: 60
+    # 90, not 60: cold-cache runs rebuild the vcpkg world (~35 min) before
+    # analysis starts — see build-and-test.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -236,7 +242,9 @@ jobs:
     # Integration tests need real Postgres/Redis which aren't wired into this
     # job — keep them out of the filter. Allows a separate, fast feedback
     # signal for memory/UB regressions.
-    timeout-minutes: 60
+    # 90, not 60: cold-cache runs rebuild the vcpkg world (~35 min) and the
+    # sanitizer-instrumented compile is slower than the plain one.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -284,7 +292,8 @@ jobs:
     # ThreadSanitizer over the unit-test bucket. The codebase leans on inline
     # singletons + atomics (ADR 0004) — exactly where races hide. Kept apart
     # from the ASan job: TSan can't share a process with ASan.
-    timeout-minutes: 60
+    # 90, not 60: same cold-vcpkg math as the sanitizers job.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
