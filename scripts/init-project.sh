@@ -191,6 +191,10 @@ declare -a PATTERNS=(
     #     `moveeeax/` → placeholder rewrite would eat the owner inside a
     #     `ghcr.io/moveeeax/…` URL first and leave this a no-op.
     "s|ghcr.io/moveeeax|ghcr.io/${REGISTRY_ORG}|g"
+    # 2c. Makefile GHCR_ORG default — a bare owner with no slash or ghcr.io/
+    #     prefix, so neither 2b nor 2a matches it. Left as-is it would point a
+    #     fork's warm-cache at ghcr.io/moveeeax/<fork-name>, which never exists.
+    "s|GHCR_ORG  ?= moveeeax|GHCR_ORG  ?= ${REGISTRY_ORG}|g"
     # 2a. Any other reference to the author's Docker Hub namespace (e.g. the
     #     `resert/…` prose in release.yml). Runs AFTER the specific image refs
     #     above so those rewrite to the fork's full ref first; this only mops up
@@ -372,5 +376,23 @@ if [[ -n "$leftovers" ]]; then
 fi
 
 echo "==> Verified: no template/author tokens remain."
+
+# The renames above touch helm/*/Chart.yaml (chart names / repo refs), which
+# invalidates the umbrella's Chart.lock — the digest is computed over the
+# dependency list. A stale lock fails `helm dependency build` in CI on the
+# very first fork pipeline (downstream bump: cyber-accountant fedb50b, whose
+# init run renamed the charts but shipped the old lock). Regenerate it here
+# while we still know a rename happened.
+if command -v helm >/dev/null 2>&1; then
+    for chart in "$ROOT"/helm/*/; do
+        [[ -f "$chart/Chart.lock" ]] || continue
+        echo "==> Regenerating $(basename "$chart")/Chart.lock after chart renames"
+        (cd "$chart" && helm dependency update >/dev/null) ||
+            echo "WARNING: helm dependency update failed for $chart — regenerate Chart.lock by hand before CI" >&2
+    done
+else
+    echo "WARNING: helm not installed — if any helm/*/Chart.yaml was renamed, run" >&2
+    echo "         'helm dependency update' in each chart with a Chart.lock before CI." >&2
+fi
 echo ""
 echo "Done. Review the full diff with: git diff"

@@ -28,8 +28,16 @@ on:
 permissions: {}
 
 env:
-  # Single source of truth for the published image namespace.
-  IMAGE_NAME: ghcr.io/moveeeax/cpp-rapid-rest-template
+  # Single source of truth for the published image namespace. Derived from the
+  # repo so a FORK publishes under its own owner/name with zero edits — the
+  # hardcoded upstream namespace forced every fork to either patch this line
+  # (and carry the diff forever) or silently push images nothing deploys
+  # (downstream bump: site b676430 rebranded this by hand and left compose/
+  # helm pointing at the upstream images). NOTE: docker/docker-compose.yml and
+  # helm values default to the UPSTREAM ghcr.io/moveeeax images — a fork that
+  # releases its own images points those at ${IMAGE_NAME} (init-project.sh
+  # rewrites them, or override APP_IMAGE/WORKER_IMAGE/image.repository).
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   build-staging:

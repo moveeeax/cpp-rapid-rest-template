@@ -14,7 +14,9 @@ IMAGE     := $(REGISTRY)/$(PROJECT_NAME)
 GIT_SHA   := $(shell git rev-parse --short HEAD)
 # GHCR namespace where builder-cache.yml publishes the builder stage.
 # Override via GHCR_ORG in project.env if your fork lives under a different org.
-GHCR_ORG  ?= resert
+# (Default was `resert` — a stale personal namespace that never matched where
+# builder-cache.yml actually publishes; found in the downstream audit.)
+GHCR_ORG  ?= moveeeax
 GHCR_REPO := ghcr.io/$(GHCR_ORG)/$(PROJECT_NAME)
 # Canonical upstream template cache — a fresh fork's own GHCR is empty until its
 # CI runs, so `make warm-cache` falls back here to skip the first cold build.
