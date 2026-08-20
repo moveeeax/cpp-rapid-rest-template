@@ -98,4 +98,41 @@ for s in DATABASE_PASSWORD JWT_SECRET; do
     [ -z "$(penv "$s")" ] || fail "prod overlay: $s carries a plaintext value — pass it via --set / external-secrets, never a tracked overlay"
 done
 
+# 8. …but that env check can only ever see the plain `.value` path, and every
+#    credential in these charts reaches the container via secretKeyRef — the
+#    plaintext lands in the rendered Secret's data/stringData, where nothing
+#    was looking. That blind spot is how a working placeholder JWT key sat in
+#    the umbrella's values with CI green until a downstream release inherited
+#    it in production (cyber-accountant e19985b). Assert on the Secret payload
+#    itself, over every TRACKED deployable overlay, so a credential re-entering
+#    values.yaml / values-stage.yaml / values-demo.yaml fails here.
+#
+#    values-ci.yaml is deliberately absent from the list: its `ci-*` strings
+#    are render fixtures whose whole job is to make the secretKeyRef path
+#    render at all, and nothing is ever deployed from that file.
+CRED_KEYS='^(password|database-password|redis-password|jwt-secret|mail-smtp-password|s3-secret-key)$'
+
+assert_no_secret_credentials() {
+    local label="$1" manifests="$2" leaked
+    # Both shapes: leaf charts b64 into .data, the umbrella writes .stringData.
+    leaked="$(printf '%s' "$manifests" |
+        yq 'select(.kind=="Secret") | (.data // {}, .stringData // {}) | to_entries | .[] | select(.value != null and .value != "") | .key' |
+        grep -E "$CRED_KEYS" | sort -u | paste -sd' ' - || true)"
+    [ -z "$leaked" ] ||
+        fail "$label: rendered Secret carries a committed credential (${leaked}) — tracked overlays must leave these empty and take them via --set / external-secrets"
+}
+
+assert_no_secret_credentials "cpp-api values-prod.example.yaml" "$PROD_RENDERED"
+
+echo "==> helm template (umbrella, chart defaults) + committed-credential assertion"
+DEFAULT_RENDERED="$(helm template env-smoke "$CHART")"
+assert_no_secret_credentials "umbrella defaults (values.yaml)" "$DEFAULT_RENDERED"
+
+for overlay in values-stage.yaml values-demo.yaml values-minimal.yaml; do
+    [ -f "$CHART/$overlay" ] || fail "env overlay $overlay is gone — update the list in this script"
+    echo "==> helm template (umbrella, $overlay) + committed-credential assertion"
+    OVERLAY_RENDERED="$(helm template env-smoke "$CHART" -f "$CHART/$overlay")"
+    assert_no_secret_credentials "umbrella + $overlay" "$OVERLAY_RENDERED"
+done
+
 echo "==> helm-render: all assertions passed"

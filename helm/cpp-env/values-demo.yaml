@@ -25,11 +25,13 @@ ingress:
   externalDnsTarget: "46.225.37.165"
 
 # Secrets are injected at deploy time by scripts/deploy-demo.sh (--set), never
-# committed. These placeholders are intentionally invalid-looking.
+# committed. Left EMPTY (the chart-wide convention): a deploy that skips the
+# script fail-closes at boot instead of running on a committed placeholder,
+# and check-helm-render.sh asserts this file renders no non-empty credential.
 credentials:
-  dbPassword: "SET-AT-DEPLOY"
-  redisPassword: "SET-AT-DEPLOY"
-  jwtSecret: "SET-AT-DEPLOY"
+  dbPassword: ""
+  redisPassword: ""
+  jwtSecret: ""
 
 # Lean the env: a public demo doesn't need Kafka (optional event publishing).
 kafka:
@@ -53,16 +55,16 @@ demoReset:
 
 cpp-api:
   image:
-    tag: "v1.4.0"     # pinned known-good amd64 build; bump when a newer one ships
+    tag: "1.5.3"      # pinned known-good amd64 build (unprefixed — release.yml strips the v); bump when a newer one ships
   externalKafka:
     enabled: false
   externalDatabase:
-    password: "SET-AT-DEPLOY"
+    password: ""            # set by deploy-demo.sh
   externalRedis:
-    password: "SET-AT-DEPLOY"
+    password: ""            # set by deploy-demo.sh
   auth:
     mode: jwt
-    jwtSecret: "SET-AT-DEPLOY"
+    jwtSecret: ""           # set by deploy-demo.sh
     cookies:
       enabled: true
       secure: true
@@ -70,13 +72,13 @@ cpp-api:
 
 cpp-worker:
   image:
-    tag: "v1.4.0"
+    tag: "1.5.3"
   externalDatabase:
-    password: "SET-AT-DEPLOY"
+    password: ""            # set by deploy-demo.sh
   externalRedis:
-    password: "SET-AT-DEPLOY"
+    password: ""            # set by deploy-demo.sh
   auth:
-    jwtSecret: "SET-AT-DEPLOY"
+    jwtSecret: ""           # set by deploy-demo.sh
   app:
     baseUrl: "https://app.demo.tarassov.me"
     name: "C++ REST Template — Demo"
@@ -87,4 +89,4 @@ cpp-worker:
 
 cpp-frontend:
   image:
-    tag: "v1.4.0"
+    tag: "1.5.3"

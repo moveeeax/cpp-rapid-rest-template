@@ -13,11 +13,22 @@ cpp-api:
   mail:
     enabled: true # force the {{- if .Values.mail.enabled }} branch so MAIL_VIA_JOBS renders
     viaJobs: true
+  # Chart-default credentials are empty (deploy takes them via --set), so the
+  # ci fixtures below exist to keep the Secret/secretKeyRef render path
+  # exercised at all. Never deployed.
+  externalDatabase:
+    password: "ci-db-pass"
+  externalRedis:
+    password: "ci-redis-pass"
   auth:
     mode: jwt
     jwtSecret: "ci-jwt-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 cpp-worker:
   app:
     baseUrl: "https://app.ci.ci.example.test"
+  externalDatabase:
+    password: "ci-db-pass"
+  externalRedis:
+    password: "ci-redis-pass"
   auth:
     jwtSecret: "ci-jwt-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

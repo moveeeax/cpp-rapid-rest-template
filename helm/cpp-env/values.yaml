@@ -6,9 +6,27 @@
 #   helm upgrade --install stage ./helm/cpp-env \
 #     -n env-stage --create-namespace \
 #     --set env=stage \
-#     --set cpp-worker.app.baseUrl=https://app.stage.example.com
+#     --set cpp-worker.app.baseUrl=https://app.stage.example.com \
+#     --set credentials.dbPassword="$DB_PASS" \
+#     --set credentials.redisPassword="$REDIS_PASS" \
+#     --set credentials.jwtSecret="$JWT_SECRET" \
+#     --set cpp-api.externalDatabase.password="$DB_PASS" \
+#     --set cpp-api.externalRedis.password="$REDIS_PASS" \
+#     --set cpp-api.auth.jwtSecret="$JWT_SECRET" \
+#     --set cpp-worker.externalDatabase.password="$DB_PASS" \
+#     --set cpp-worker.externalRedis.password="$REDIS_PASS" \
+#     --set cpp-worker.auth.jwtSecret="$JWT_SECRET"
 #
-# Everything else (DB rw/ro URLs, Redis Sentinel, Kafka, OTLP, Mailpit, creds,
+# Credentials are EMPTY by default and REQUIRED at install (generate throwaway
+# ones like scripts/deploy-demo.sh does). They used to default to public
+# test-* placeholders, and a downstream production release silently inherited
+# the placeholder JWT key — tokens signed with a string published in this repo
+# verified against a live API (cyber-accountant e19985b). Empty defaults turn
+# that silent takeover into a visible fail-close: the API refuses to boot on an
+# empty/short JWT secret (src/security/Auth.hpp), and scripts/check-helm-render.sh
+# asserts no tracked overlay ever carries a non-empty credential again.
+#
+# Everything else (DB rw/ro URLs, Redis Sentinel, Kafka, OTLP, Mailpit,
 # ingress hosts) is wired automatically below. Each env lives in its own
 # namespace, so service names are fixed and collision-free across envs.
 # ═══════════════════════════════════════════════════════════════
@@ -19,21 +37,25 @@ baseDomain: example.com
 
 # ── Ingress (umbrella owns all ingress; subchart ingress is disabled) ──
 ingress:
+  enabled: true          # false → release brings its own real-domain Ingress; the api.<env>/app.<env> placeholders don't render
   className: nginx
   clusterIssuer: letsencrypt-prod        # cert-manager ClusterIssuer (DNS-01 for wildcard)
   wildcardTlsSecret: ""                  # set to reuse a pre-issued *.<env> cert; "" → per-host certs
   externalDnsTarget: ""                  # external-dns A target (cluster ingress IP); "" → omit annotations
 
-# ── Per-env credentials (TEST ONLY — throwaway envs). Used by the infra
-# templates below AND mirrored into the subchart password fields further down;
-# keep both in sync (or override all via --set for a sensitive env). ──
+# ── Per-env credentials — EMPTY on purpose, supply at install via --set (see
+# header). Used by the infra templates below AND mirrored into the subchart
+# password fields further down; keep both in sync. Committing a working value
+# here hands it to every release that forgets to override it — that is exactly
+# the incident these defaults used to cause. check-helm-render.sh gates it. ──
 credentials:
-  dbPassword: "test-db-pass-change-me"
-  redisPassword: "test-redis-pass-change-me"
-  jwtSecret: "test-jwt-secret-change-me-0123456789abcdef0123456789abcdef"
+  dbPassword: ""
+  redisPassword: ""
+  jwtSecret: ""
 
 # ── Infra toggles + sizing ──
 postgres:
+  enabled: true         # false → point the subcharts at an existing/shared Postgres instead
   instances: 2          # CNPG: 1 primary + (instances-1) replicas → pg-rw / pg-ro
   storageSize: 2Gi
   storageClass: ""      # "" → cluster default
@@ -73,7 +95,10 @@ cpp-api:
   replicaCount: 1
   image:
     repository: ghcr.io/moveeeax/cpp-rapid-rest-template
-    tag: "v1.4.0"
+    # NOTE: release.yml strips the tag's leading v — GHCR carries 1.5.3, not
+    # v1.5.3. A v-prefixed pin here pulls a tag that does not exist
+    # (downstream bump: cyber-accountant 80996a7).
+    tag: "1.5.3"
     pullPolicy: Always
   nodeSelector:
     kubernetes.io/arch: amd64
@@ -87,7 +112,7 @@ cpp-api:
     port: 5432
     name: app
     user: app
-    password: "test-db-pass-change-me"   # == credentials.dbPassword
+    password: ""                         # == credentials.dbPassword (set via --set)
     poolSize: 5
     replicaHost: pg-ro
     migrationsEnabled: false
@@ -95,7 +120,7 @@ cpp-api:
     runAsInitContainer: true
   externalRedis:
     url: "tcp://redis:6379"
-    password: "test-redis-pass-change-me"  # == credentials.redisPassword
+    password: ""                           # == credentials.redisPassword (set via --set)
     useSentinel: true
     masterName: mymaster
     sentinelNodes: "redis-sentinel:26379"
@@ -120,7 +145,7 @@ cpp-api:
     otlpEndpoint: "http://jaeger:4318/v1/traces"
   auth:
     mode: jwt
-    jwtSecret: "test-jwt-secret-change-me-0123456789abcdef0123456789abcdef"  # == credentials.jwtSecret
+    jwtSecret: ""        # == credentials.jwtSecret (set via --set; empty fail-closes at boot)
     cookies:
       enabled: true
       secure: true
@@ -133,7 +158,7 @@ cpp-worker:
   replicaCount: 1
   image:
     repository: ghcr.io/moveeeax/cpp-rapid-rest-template-worker
-    tag: "v1.4.0"
+    tag: "1.5.3"       # unprefixed — see the cpp-api image note
     pullPolicy: Always
   nodeSelector:
     kubernetes.io/arch: amd64
@@ -145,12 +170,12 @@ cpp-worker:
     port: 5432
     name: app
     user: app
-    password: "test-db-pass-change-me"
+    password: ""       # == credentials.dbPassword (set via --set)
     poolSize: 5
     replicaHost: pg-ro
   externalRedis:
     url: "tcp://redis:6379"
-    password: "test-redis-pass-change-me"
+    password: ""       # == credentials.redisPassword (set via --set)
     useSentinel: true
     masterName: mymaster
     sentinelNodes: "redis-sentinel:26379"
@@ -159,7 +184,7 @@ cpp-worker:
     enabled: true
   auth:
     mode: jwt
-    jwtSecret: "test-jwt-secret-change-me-0123456789abcdef0123456789abcdef"
+    jwtSecret: ""      # == credentials.jwtSecret (set via --set)
     jwtIssuer: ""
     jwtAudience: ""
   # The public URL baked into email links — the ONE field that needs the env
@@ -188,7 +213,7 @@ cpp-frontend:
   replicaCount: 1
   image:
     repository: ghcr.io/moveeeax/cpp-rapid-rest-template-frontend
-    tag: "v1.4.0"
+    tag: "1.5.3"       # unprefixed — see the cpp-api image note
     pullPolicy: Always
   nodeSelector:
     kubernetes.io/arch: amd64

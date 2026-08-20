@@ -210,7 +210,7 @@ helm-lint:         ## helm lint + helm template render for both charts
 			echo "==> helm lint $$chart" ; \
 			helm lint "$$chart" || exit 1 ; \
 			echo "==> helm template $$chart (smoke)" ; \
-			helm template _smoke "$$chart" >/dev/null || exit 1 ; \
+			helm template smoke "$$chart" >/dev/null || exit 1 ; \
 		fi ; \
 	done
 	@echo "==> helm-lint: all charts pass"
