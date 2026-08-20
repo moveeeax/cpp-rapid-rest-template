@@ -98,6 +98,12 @@ COPY . .
 # Pass --build-arg ENABLE_WERROR=ON from CI; defaults to OFF for local builds.
 ARG ENABLE_WERROR=OFF
 
+# APP_VERSION stamps the released version into the binary (Core::version(),
+# GET /health, GET /). .github/workflows/release.yml passes the git tag; left
+# empty the CMake -D is empty too and project(VERSION ...) in CMakeLists.txt
+# wins, so local and CI builds are unaffected.
+ARG APP_VERSION
+
 RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETARCH} \
     --mount=type=cache,target=/root/.cache/vcpkg,id=vcpkg-cache-${TARGETARCH} \
     mkdir -p build && cd build && \
@@ -105,6 +111,7 @@ RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETAR
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DENABLE_WERROR=${ENABLE_WERROR} \
+    -DPROJECT_VERSION_OVERRIDE=${APP_VERSION} \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake && \
     cmake --build . --config Release -j$(nproc)
