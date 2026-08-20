@@ -72,6 +72,33 @@ TEST_F(TemplatesTest, defaultContextWithoutConfigHasAppFields) {
     EXPECT_TRUE(ctx.contains("base_url"));
 }
 
+// inja has no autoescaping: the html render path must escape user-controlled
+// context strings, or a self-registered display name becomes attacker HTML
+// delivered from our From:/DKIM. The txt path must stay verbatim.
+TEST_F(TemplatesTest, escapeHtmlEscapesMarkupSignificantChars) {
+    EXPECT_EQ(Email::Templates::escape_html(R"(<b>&"'</b>)"), "&lt;b&gt;&amp;&quot;&#39;&lt;/b&gt;");
+    EXPECT_EQ(Email::Templates::escape_html("plain text 123"), "plain text 123");
+}
+
+TEST_F(TemplatesTest, htmlRenderEscapesContextValues) {
+    write("evil.html", "<p>Hi {{ user.name }}</p>");
+    auto out = Email::Templates::render("evil", "html", {{"user", {{"name", "<script>alert('x')</script>"}}}});
+    EXPECT_EQ(out.find("<script>"), std::string::npos);
+    EXPECT_NE(out.find("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;"), std::string::npos);
+}
+
+TEST_F(TemplatesTest, txtRenderStaysVerbatim) {
+    write("evil.txt", "Hi {{ name }}");
+    auto out = Email::Templates::render("evil", "txt", {{"name", "Tom & Jerry <cat@mouse>"}});
+    EXPECT_EQ(out, "Hi Tom & Jerry <cat@mouse>");
+}
+
+TEST_F(TemplatesTest, htmlEscapingCoversNestedObjectsAndArrays) {
+    write("deep.html", "{{ a.0 }}|{{ b.c }}");
+    auto out = Email::Templates::render("deep", "html", {{"a", {"<x>"}}, {"b", {{"c", "\"q\""}}}});
+    EXPECT_EQ(out, "&lt;x&gt;|&quot;q&quot;");
+}
+
 // The repo's real templates: every shipped pair must render against the
 // context AccountEmails builds, with the link placeholder substituted.
 TEST_F(TemplatesTest, shippedTemplatesRenderWithAccountContext) {
