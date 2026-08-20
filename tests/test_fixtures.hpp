@@ -101,7 +101,10 @@ inline Security::Auth::AuthPrincipal admin_principal(const std::string& sub = "a
     p.subject = sub;
     p.roles = {"admin", "user"};
     p.scopes = {};
-    p.raw_claims = json::object();
+    // require_admin/require_permission read the "permissions" claim from
+    // raw_claims — without it this principal is rejected now that fixtures
+    // default to auth.mode=jwt.
+    p.raw_claims = json{{"sub", sub}, {"permissions", Security::Auth::kAdminPermissionBits}};
     return p;
 }
 
@@ -110,7 +113,7 @@ inline Security::Auth::AuthPrincipal user_principal(const std::string& sub = "re
     p.subject = sub;
     p.roles = {"user"};
     p.scopes = {};
-    p.raw_claims = json::object();
+    p.raw_claims = json{{"sub", sub}, {"permissions", 1}};  // 0x01 = GENERAL
     return p;
 }
 

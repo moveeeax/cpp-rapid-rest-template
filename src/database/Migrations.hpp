@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <regex>
 #include <set>
@@ -21,6 +22,7 @@
 #include <spdlog/spdlog.h>
 
 #include "database/Database.hpp"
+#include "utils/Crypto.hpp"
 
 namespace Migrations {
 
@@ -89,8 +91,13 @@ private:
                 "CREATE TABLE IF NOT EXISTS schema_migrations ("
                 "  version INTEGER PRIMARY KEY,"
                 "  name VARCHAR(255) NOT NULL,"
-                "  applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"
+                "  applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,"
+                "  checksum VARCHAR(64)"
                 ")");
+            // Databases tracked before the checksum column existed get it
+            // added in place; their rows stay NULL until backfilled on the
+            // next boot's verify pass.
+            txn.exec("ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum VARCHAR(64)");
             return 0;
         });
         spdlog::debug("schema_migrations table ensured");
@@ -127,15 +134,16 @@ private:
         return migrations;
     }
 
-    std::set<int> get_applied() {
-        std::set<int> applied;
-        // Read-only SELECT — use a read txn on the primary (not a write slot),
-        // consistent with list_pending. Must be the primary: migrations are
-        // written there and a replica could lag.
+    /// version → recorded checksum ("" for rows that predate the checksum
+    /// column). Read-only SELECT — use a read txn on the primary (not a write
+    /// slot), consistent with list_pending. Must be the primary: migrations
+    /// are written there and a replica could lag.
+    std::map<int, std::string> get_applied() {
+        std::map<int, std::string> applied;
         auto result = Database::get().execute_read_primary(
-            [](auto& txn) { return txn.exec("SELECT version FROM schema_migrations ORDER BY version"); });
+            [](auto& txn) { return txn.exec("SELECT version, checksum FROM schema_migrations ORDER BY version"); });
         for (const auto& row : result) {
-            applied.insert(row[0].template as<int>());
+            applied[row[0].template as<int>()] = row[1].is_null() ? std::string{} : row[1].template as<std::string>();
         }
         return applied;
     }
@@ -156,7 +164,7 @@ private:
     // replicas — the transaction-scoped lock the normal path uses needs a txn.
     // with_primary_connection restores the pool's statement_timeout afterwards.
     // @return true if applied, false if another instance applied it first.
-    bool apply_no_transaction_(const MigrationFile& mf, const std::string& sql) {
+    bool apply_no_transaction_(const MigrationFile& mf, const std::string& sql, const std::string& checksum) {
         return Database::get().with_primary_connection([&](pqxx::connection& c) -> bool {
             pqxx::nontransaction nt(c);
             nt.exec("SET statement_timeout = 0");
@@ -166,8 +174,8 @@ private:
                 auto seen = nt.exec("SELECT 1 FROM schema_migrations WHERE version = $1", pqxx::params{mf.version});
                 if (seen.empty()) {
                     nt.exec(sql);  // single statement — autocommits immediately
-                    nt.exec("INSERT INTO schema_migrations (version, name) VALUES ($1, $2)",
-                            pqxx::params{mf.version, mf.name});
+                    nt.exec("INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)",
+                            pqxx::params{mf.version, mf.name, checksum});
                     applied = true;
                 }
             } catch (...) {
@@ -204,13 +212,40 @@ public:
         int skipped_count = 0;
 
         for (const auto& mf : migrations) {
-            if (applied.count(mf.version)) {
+            const std::string sql = read_file(mf.path);
+            const std::string checksum = Utils::Crypto::sha256_hex(sql);
+
+            if (auto it = applied.find(mf.version); it != applied.end()) {
+                // The runner keys on the VERSION NUMBER: a database that
+                // recorded this version will never re-run the file, so an
+                // in-place edit silently never reaches it (bit a downstream
+                // fork on a billing migration — site 008_billing_refunds).
+                // The checksum turns that silent divergence into a boot
+                // failure.
+                if (!it->second.empty() && it->second != checksum) {
+                    throw std::runtime_error("Migration " + mf.name + " (version " + std::to_string(mf.version) +
+                                             ") was EDITED after being applied: recorded checksum " + it->second +
+                                             " != on-disk sha256 " + checksum +
+                                             ". Never edit an applied migration — ship a new NNN_*.sql with idempotent "
+                                             "re-declarations instead; a database that already recorded this version "
+                                             "will never re-run the edited file.");
+                }
+                if (it->second.empty()) {
+                    // Row predates the checksum column — backfill so the next
+                    // boot verifies this file too.
+                    Database::get().execute_write([&](auto& txn) {
+                        txn.exec_params(
+                            "UPDATE schema_migrations SET checksum = $1 WHERE version = $2 AND checksum IS NULL",
+                            checksum,
+                            mf.version);
+                        return 0;
+                    });
+                }
                 skipped_count++;
                 continue;
             }
 
             spdlog::info("Running migration {}: {}", mf.version, mf.name);
-            std::string sql = read_file(mf.path);
 
             // Hold a transaction-scoped advisory lock while applying so
             // concurrent boots (multiple replicas) serialize here instead of
@@ -221,7 +256,7 @@ public:
             if (has_no_transaction_marker(sql)) {
                 spdlog::info("Migration {} runs WITHOUT a transaction (autocommit, statement_timeout cleared)",
                              mf.name);
-                did_apply = apply_no_transaction_(mf, sql);
+                did_apply = apply_no_transaction_(mf, sql, checksum);
             } else
                 did_apply = Database::get().execute_write([&](auto& txn) -> bool {
                     txn.exec("SELECT pg_advisory_xact_lock(4242424242)");
@@ -229,8 +264,10 @@ public:
                     if (!seen.empty())
                         return false;  // another booting instance applied it first
                     txn.exec(sql);
-                    txn.exec_params(
-                        "INSERT INTO schema_migrations (version, name) VALUES ($1, $2)", mf.version, mf.name);
+                    txn.exec_params("INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)",
+                                    mf.version,
+                                    mf.name,
+                                    checksum);
                     return true;
                 });
 

@@ -60,12 +60,7 @@ protected:
         TestHelpers::CoreBackedTest::SetUp();
         if (::testing::Test::IsSkipped())
             return;
-        Database::get().execute_write([](auto& txn) {
-            txn.exec("TRUNCATE TABLE posts");
-            txn.exec("TRUNCATE TABLE users CASCADE");
-            txn.exec("DELETE FROM roles WHERE name NOT IN ('User', 'Administrator')");
-            return 0;
-        });
+        TestHelpers::wipe_app_data();
     }
 
     struct Pair {

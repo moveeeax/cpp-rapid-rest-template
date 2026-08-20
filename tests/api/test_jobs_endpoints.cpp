@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include "api/Api.hpp"
+#include "test_fixtures.hpp"
 #include "test_helpers.hpp"
 
 using json = nlohmann::json;
@@ -16,6 +17,10 @@ class JobsEndpointTest : public TestHelpers::CoreBackedTest {
 protected:
     Api::JobsController controller;
     std::vector<std::string> job_ids_to_cleanup;
+    // JobsController is admin-gated on every route; with auth.mode=jwt (the
+    // minimal_config default) the guard is live, so every request in this
+    // suite runs as this admin.
+    Security::Auth::AuthPrincipal admin_ = TestFixtures::admin_principal();
 
     std::string config_file_name() const override { return "jobs_test_config.json"; }
 
@@ -43,7 +48,7 @@ protected:
     /// Submit a job through the controller and return the parsed response body.
     json submit(const json& payload) {
         HttpResponsePtr resp;
-        controller.submitJob(TestHelpers::post_json(payload), [&](const HttpResponsePtr& r) { resp = r; });
+        controller.submitJob(TestHelpers::authed_json(admin_, payload), [&](const HttpResponsePtr& r) { resp = r; });
         EXPECT_NE(resp, nullptr);
         json body = json::parse(std::string(resp->body()));
         if (body.contains("data") && body["data"].contains("id"))
@@ -69,7 +74,7 @@ TEST_F(JobsEndpointTest, SubmitJobWithMaxRetries) {
 }
 
 TEST_F(JobsEndpointTest, SubmitJobInvalidJson) {
-    auto req = TestHelpers::make_request(Post);
+    auto req = TestHelpers::with_principal(TestHelpers::make_request(Post), admin_);
     req->setBody("not valid json{{{");
 
     HttpResponsePtr captured;
@@ -81,7 +86,7 @@ TEST_F(JobsEndpointTest, SubmitJobInvalidJson) {
 
 TEST_F(JobsEndpointTest, SubmitJobMissingType) {
     HttpResponsePtr captured;
-    controller.submitJob(TestHelpers::post_json({{"payload", {{"key", "val"}}}}),
+    controller.submitJob(TestHelpers::authed_json(admin_, {{"payload", {{"key", "val"}}}}),
                          [&](const HttpResponsePtr& resp) { captured = resp; });
 
     ASSERT_NE(captured, nullptr);
@@ -90,7 +95,8 @@ TEST_F(JobsEndpointTest, SubmitJobMissingType) {
 
 TEST_F(JobsEndpointTest, SubmitJobEmptyType) {
     HttpResponsePtr captured;
-    controller.submitJob(TestHelpers::post_json({{"type", ""}}), [&](const HttpResponsePtr& resp) { captured = resp; });
+    controller.submitJob(TestHelpers::authed_json(admin_, {{"type", ""}}),
+                         [&](const HttpResponsePtr& resp) { captured = resp; });
 
     ASSERT_NE(captured, nullptr);
     EXPECT_EQ(captured->statusCode(), k400BadRequest);
@@ -103,7 +109,7 @@ TEST_F(JobsEndpointTest, GetJobStatus) {
 
     HttpResponsePtr get_resp;
     controller.getJobStatus(
-        TestHelpers::make_request(), [&](const HttpResponsePtr& resp) { get_resp = resp; }, job_id);
+        TestHelpers::authed(admin_), [&](const HttpResponsePtr& resp) { get_resp = resp; }, job_id);
 
     ASSERT_NE(get_resp, nullptr);
     EXPECT_EQ(get_resp->statusCode(), k200OK);
@@ -117,7 +123,7 @@ TEST_F(JobsEndpointTest, GetJobStatus) {
 TEST_F(JobsEndpointTest, GetJobStatusNotFound) {
     HttpResponsePtr captured;
     controller.getJobStatus(
-        TestHelpers::make_request(),
+        TestHelpers::authed(admin_),
         [&](const HttpResponsePtr& resp) { captured = resp; },
         "00000000-0000-0000-0000-000000000000");
 
@@ -128,7 +134,7 @@ TEST_F(JobsEndpointTest, GetJobStatusNotFound) {
 TEST_F(JobsEndpointTest, GetJobStatusInvalidUUID) {
     HttpResponsePtr captured;
     controller.getJobStatus(
-        TestHelpers::make_request(), [&](const HttpResponsePtr& resp) { captured = resp; }, "not-a-uuid");
+        TestHelpers::authed(admin_), [&](const HttpResponsePtr& resp) { captured = resp; }, "not-a-uuid");
 
     ASSERT_NE(captured, nullptr);
     EXPECT_EQ(captured->statusCode(), k400BadRequest);
@@ -141,7 +147,7 @@ TEST_F(JobsEndpointTest, CancelJob) {
 
     HttpResponsePtr cancel_resp;
     controller.cancelJob(
-        TestHelpers::make_request(Delete), [&](const HttpResponsePtr& resp) { cancel_resp = resp; }, job_id);
+        TestHelpers::authed(admin_, Delete), [&](const HttpResponsePtr& resp) { cancel_resp = resp; }, job_id);
 
     ASSERT_NE(cancel_resp, nullptr);
     EXPECT_EQ(cancel_resp->statusCode(), k200OK);
@@ -152,7 +158,7 @@ TEST_F(JobsEndpointTest, CancelJob) {
     // Verify status is failed/cancelled
     HttpResponsePtr get_resp;
     controller.getJobStatus(
-        TestHelpers::make_request(), [&](const HttpResponsePtr& resp) { get_resp = resp; }, job_id);
+        TestHelpers::authed(admin_), [&](const HttpResponsePtr& resp) { get_resp = resp; }, job_id);
     auto get_body = json::parse(std::string(get_resp->body()));
     EXPECT_EQ(get_body["data"]["status"], "failed");
     EXPECT_EQ(get_body["data"]["error"], "cancelled");
@@ -161,7 +167,7 @@ TEST_F(JobsEndpointTest, CancelJob) {
 TEST_F(JobsEndpointTest, CancelJobNotFound) {
     HttpResponsePtr captured;
     controller.cancelJob(
-        TestHelpers::make_request(Delete),
+        TestHelpers::authed(admin_, Delete),
         [&](const HttpResponsePtr& resp) { captured = resp; },
         "00000000-0000-0000-0000-000000000000");
 
@@ -172,7 +178,7 @@ TEST_F(JobsEndpointTest, CancelJobNotFound) {
 TEST_F(JobsEndpointTest, CancelJobInvalidUUID) {
     HttpResponsePtr captured;
     controller.cancelJob(
-        TestHelpers::make_request(Delete), [&](const HttpResponsePtr& resp) { captured = resp; }, "bad-uuid");
+        TestHelpers::authed(admin_, Delete), [&](const HttpResponsePtr& resp) { captured = resp; }, "bad-uuid");
 
     ASSERT_NE(captured, nullptr);
     EXPECT_EQ(captured->statusCode(), k400BadRequest);
@@ -185,7 +191,7 @@ TEST_F(JobsEndpointTest, ListJobs) {
     }
 
     HttpResponsePtr list_resp;
-    controller.listJobs(TestHelpers::make_request(), [&](const HttpResponsePtr& resp) { list_resp = resp; });
+    controller.listJobs(TestHelpers::authed(admin_), [&](const HttpResponsePtr& resp) { list_resp = resp; });
 
     ASSERT_NE(list_resp, nullptr);
     EXPECT_EQ(list_resp->statusCode(), k200OK);
@@ -203,7 +209,7 @@ TEST_F(JobsEndpointTest, ListJobsPaginatesWithOffset) {
         ASSERT_EQ(body["_status"], 201);
     }
 
-    auto page_req = TestHelpers::make_request();
+    auto page_req = TestHelpers::authed(admin_);
     page_req->setParameter("limit", "2");
     page_req->setParameter("offset", "2");
     page_req->setParameter("type", "echo");
@@ -217,4 +223,19 @@ TEST_F(JobsEndpointTest, ListJobsPaginatesWithOffset) {
     EXPECT_EQ(body["offset"].get<int>(), 2);
     EXPECT_GE(body["total"].get<int>(), 3);
     EXPECT_GE(body["data"].size(), 1u);
+}
+
+// The proof that the admin guard is actually live now: without the jwt-mode
+// default in minimal_config(), both of these passed for the wrong reason.
+TEST_F(JobsEndpointTest, NonAdminGets403OnSubmit) {
+    HttpResponsePtr resp;
+    controller.submitJob(TestHelpers::authed_json(TestFixtures::user_principal(), {{"type", "echo"}}),
+                         [&](const HttpResponsePtr& r) { resp = r; });
+    ASSERT_NE(resp, nullptr);
+    EXPECT_EQ(resp->statusCode(), k403Forbidden);
+
+    HttpResponsePtr anon;
+    controller.listJobs(TestHelpers::make_request(), [&](const HttpResponsePtr& r) { anon = r; });
+    ASSERT_NE(anon, nullptr);
+    EXPECT_EQ(anon->statusCode(), k403Forbidden);
 }
