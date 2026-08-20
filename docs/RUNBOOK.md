@@ -28,7 +28,7 @@ Prometheus hasn't scraped the process for 2 min — it's down or wedged.
 >5% of responses are 5xx.
 
 1. Find the failing route: Grafana `http_requests_total{status=~"5.."}` by
-   `path`. The path is normalized (`/api/jobs/:id`), tokens redacted.
+   `path`. The path is normalized (`/api/v1/jobs/:id`), tokens redacted.
 2. Pull a failing trace (`tid=` in the log) — `make tail-trace TID=<id>` shows
    the `db.*` child spans with the SQL template + pool label.
 3. DB-driven? See [HighP99Latency](#p99). Dependency down? See
@@ -61,10 +61,10 @@ Read replica >60s behind. Stale reads are being served.
 Jobs exhausted their retries and landed in the DLQ.
 
 1. Inspect: admin UI **/admin/jobs → DLQ tab**, or
-   `GET /api/jobs/dlq` (admin token). Each row has the last `error` and a
+   `GET /api/v1/jobs/dlq` (admin token). Each row has the last `error` and a
    `trace_id` → open the worker trace.
 2. Transient cause now fixed (e.g. SMTP was down)? Requeue:
-   `POST /api/jobs/dlq/{id}/requeue` or the UI button.
+   `POST /api/v1/jobs/dlq/{id}/requeue` or the UI button.
 3. Code bug? Fix the handler, redeploy the worker, then requeue.
 4. Account emails specifically: check `WORKER_TYPES` includes `account_email`
    and the worker has `JWT_SECRET` + `MAIL_*` (a missing secret DLQ's every

@@ -108,4 +108,47 @@ TEST(WithRepoErrors, UnexpectedExceptionMaps500) {
     EXPECT_EQ(cap.status, 500);
 }
 
+// ── 4-arg overload: after-response side effects ──────────────────────────────
+// Encodes the downstream billing incident: a dispatch INSIDE the guarded
+// lambda that threw after callback() fired was mapped by the catch ladder and
+// fired callback() a SECOND time. The overload runs after_fn only once fn
+// completed, outside the catch ladder, and swallows-with-log its exceptions.
+
+TEST(WithRepoErrorsAfter, AfterRunsAfterFnCompleted) {
+    std::string order;
+    const bool returned = Api::with_repo_errors([&](const drogon::HttpResponsePtr&) { order += "error_cb;"; },
+                                                "unit test",
+                                                [&] { order += "fn;"; },
+                                                [&] { order += "after;"; });
+    EXPECT_TRUE(returned);
+    EXPECT_EQ(order, "fn;after;");
+}
+
+TEST(WithRepoErrorsAfter, AfterSkippedWhenFnThrows) {
+    bool after_ran = false;
+    int responses = 0;
+    const bool returned = Api::with_repo_errors([&](const drogon::HttpResponsePtr&) { ++responses; },
+                                                "unit test",
+                                                [] { throw Repositories::UserNotFound{}; },
+                                                [&] { after_ran = true; });
+    EXPECT_FALSE(returned);
+    EXPECT_EQ(responses, 1);  // the mapped 404 only
+    EXPECT_FALSE(after_ran);
+}
+
+TEST(WithRepoErrorsAfter, ThrowingAfterFnNeverFiresCallbackAgain) {
+    // The key property: the side effect throwing must not re-enter the repo-
+    // error mapping — cb count stays exactly what fn produced.
+    int responses = 0;
+    const bool returned =
+        Api::with_repo_errors([&](const drogon::HttpResponsePtr&) { ++responses; },
+                              "unit test",
+                              [&] {
+                                  ++responses; /* stands in for the handler's own success callback(...) */
+                              },
+                              [] { throw std::runtime_error("smtp down"); });
+    EXPECT_TRUE(returned);
+    EXPECT_EQ(responses, 1);
+}
+
 }  // namespace

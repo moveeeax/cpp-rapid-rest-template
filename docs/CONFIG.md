@@ -35,7 +35,8 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `API_PUBLIC_PATHS` | `api.public_paths` | csv | `/,…,/api/auth/login,/api/auth/register,/api/auth/refresh,/api/account/confirm/*,/api/account/reset-password-request,/api/account/reset-password/*,/api/account/change-email/*` | Paths that bypass auth + rate limit. Exact-match; a trailing `*` is a prefix match (used for the token-bearing account routes). |
+| `API_PUBLIC_PATHS` | `api.public_paths` | csv | `/,…,/api/auth/login,/api/auth/register,/api/auth/refresh,/api/account/confirm/*,/api/account/reset-password-request,/api/account/reset-password/*,/api/account/change-email/*` | Paths that bypass auth + rate limit. Exact-match; a trailing `*` is a prefix match (used for the token-bearing account routes). FULL OVERRIDE of the built-in default — prefer the extra key below for additions. |
+| `API_PUBLIC_PATHS_EXTRA` | `api.public_paths_extra` | csv | — | ADDITIVE companion to `API_PUBLIC_PATHS`: entries are appended to the resolved public-paths set (built-in default or override), same matching rules. Use it to open extra routes (a payment-provider webhook, a public feed) without re-listing — and risking silently dropping — the default set. |
 | `CORS_ALLOWED_ORIGINS` | `cors.allowed_origins` | csv | — | Empty disables CORS |
 
 ## Auth
@@ -192,7 +193,9 @@ public paths to that override — `/posts/*`, `/sitemap.xml`,
 `/api/v1/public/posts`, `/api/v1/public/posts/*`, `/uploads/*` — or anonymous
 readers get 401/404 on routes the code otherwise treats as public. See
 `config/config.production.json`, which currently overrides `API_PUBLIC_PATHS`
-without these and intentionally ships with content still gated off.
+without these and intentionally ships with content still gated off. With the
+additive `API_PUBLIC_PATHS_EXTRA` key this footgun is avoidable: keep the
+override minimal (or unset) and add module paths through the extra key.
 
 ## Mail (SMTP)
 

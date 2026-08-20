@@ -52,15 +52,15 @@ else
     FAILURES=$((FAILURES + 1))
 fi
 
-say "Validation — POST /api/jobs with missing type (400; 503 jobs-off; 401 auth-on without TOKEN)"
+say "Validation — POST /api/v1/jobs with missing type (400; 503 jobs-off; 401 auth-on without TOKEN)"
 if [[ -n "$AUTH_HEADER" ]]; then
     # A token was supplied — 401 would be a real failure.
-    expect "400|503" -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/api/jobs"
+    expect "400|503" -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/api/v1/jobs"
 else
     # No TOKEN: with AUTH_MODE=jwt/bearer the middleware answers 401 before
     # validation — that's correct. Mint one via `make dev-token` to exercise
     # the validation path itself.
-    expect "400|503|401" -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/api/jobs"
+    expect "400|503|401" -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/api/v1/jobs"
 fi
 
 say "Prometheus /metrics (http_requests_total subset)"

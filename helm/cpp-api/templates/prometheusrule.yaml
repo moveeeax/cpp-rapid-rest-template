@@ -176,7 +176,7 @@ spec:
           annotations:
             runbook_url: "https://gitlab.com/tarassov.me/cpp-rapid-rest-template/-/blob/master/docs/RUNBOOK.md#dlq"
             summary: "Dead-letter queue depth over threshold"
-            description: "Investigate repeatedly-failing jobs — inspect /api/jobs/dlq and decide whether to requeue or discard."
+            description: "Investigate repeatedly-failing jobs — inspect /api/v1/jobs/dlq and decide whether to requeue or discard."
 
         - alert: CppApiJobsDlqSpikeByType
           # One job type alone is accumulating a DLQ backlog fast.

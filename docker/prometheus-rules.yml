@@ -77,7 +77,7 @@ groups:
         annotations:
           runbook_url: "https://gitlab.com/tarassov.me/cpp-rapid-rest-template/-/blob/master/docs/RUNBOOK.md#dlq"
           summary: "Jobs dead-letter queue is non-empty for 15 minutes"
-          description: "{{ $value }} job(s) in the DLQ. Inspect /api/jobs/dlq and requeue or fix the handler."
+          description: "{{ $value }} job(s) in the DLQ. Inspect /api/v1/jobs/dlq and requeue or fix the handler."
 
       - alert: RetriesExhaustedSpike
         expr: sum(rate(retries_total{outcome="exhausted"}[5m])) > 0.1

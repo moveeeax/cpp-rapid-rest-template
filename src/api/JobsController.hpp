@@ -1,7 +1,7 @@
 /**
  * @file JobsController.hpp
  * @brief Jobs queue HTTP controller
- * @details Handles /api/jobs endpoints for submitting and querying background jobs
+ * @details Handles /api/v1/jobs endpoints for submitting and querying background jobs
  */
 
 #pragma once
@@ -29,7 +29,7 @@ class JobsController : public HttpController<JobsController> {
 public:
     METHOD_LIST_BEGIN
     // Fixed-path routes must be registered before parameterized routes so
-    // that /api/jobs/dlq does not accidentally match /api/jobs/{1}.
+    // that /api/v1/jobs/dlq does not accidentally match /api/v1/jobs/{1}.
     ADD_METHOD_TO(JobsController::listDlq, "/api/v1/jobs/dlq", Get);
     ADD_METHOD_TO(JobsController::requeueDlq, "/api/v1/jobs/dlq/{1}/requeue", Post);
     ADD_METHOD_TO(JobsController::listJobs, "/api/v1/jobs", Get);
@@ -52,7 +52,7 @@ public:
             }
             callback(Response::paginated(jobs_json, page.total, pp.limit, pp.offset));
         } catch (const std::exception& e) {
-            spdlog::error("Error in GET /api/jobs: {}", e.what());
+            spdlog::error("Error in GET /api/v1/jobs: {}", e.what());
             callback(ErrorResponse::internal_error());
         }
     }
@@ -80,7 +80,7 @@ public:
             auto job = Jobs::get().submit(type, payload, max_retries);
             callback(Response::created({{"data", job.to_json()}, {"message", "Job submitted"}}));
         } catch (const std::exception& e) {
-            spdlog::error("Error in POST /api/jobs: {}", e.what());
+            spdlog::error("Error in POST /api/v1/jobs: {}", e.what());
             callback(ErrorResponse::internal_error());
         }
     }
@@ -102,7 +102,7 @@ public:
             }
             callback(Response::ok({{"data", job->to_json()}}));
         } catch (const std::exception& e) {
-            spdlog::error("Error in GET /api/jobs/{}: {}", id, e.what());
+            spdlog::error("Error in GET /api/v1/jobs/{}: {}", id, e.what());
             callback(ErrorResponse::internal_error());
         }
     }
@@ -121,7 +121,7 @@ public:
             callback(
                 Response::ok({{"data", jobs_json}, {"count", jobs_json.size()}, {"depth", Jobs::get().dlq_depth()}}));
         } catch (const std::exception& e) {
-            spdlog::error("Error in GET /api/jobs/dlq: {}", e.what());
+            spdlog::error("Error in GET /api/v1/jobs/dlq: {}", e.what());
             callback(ErrorResponse::internal_error());
         }
     }
@@ -142,7 +142,7 @@ public:
             }
             callback(Response::ok({{"message", "Job requeued from DLQ"}, {"id", id}}));
         } catch (const std::exception& e) {
-            spdlog::error("Error in POST /api/jobs/dlq/{}/requeue: {}", id, e.what());
+            spdlog::error("Error in POST /api/v1/jobs/dlq/{}/requeue: {}", id, e.what());
             callback(ErrorResponse::internal_error());
         }
     }
@@ -163,7 +163,7 @@ public:
             }
             callback(Response::ok({{"message", "Job cancelled"}}));
         } catch (const std::exception& e) {
-            spdlog::error("Error in DELETE /api/jobs/{}: {}", id, e.what());
+            spdlog::error("Error in DELETE /api/v1/jobs/{}: {}", id, e.what());
             callback(ErrorResponse::internal_error());
         }
     }

@@ -24,6 +24,7 @@
 
 #include <exception>
 #include <functional>
+#include <utility>
 
 #include <drogon/HttpResponse.h>
 #include <spdlog/spdlog.h>
@@ -64,6 +65,51 @@ inline bool with_repo_errors(const std::function<void(const drogon::HttpResponse
         cb(ErrorResponse::internal_error());
     }
     return false;
+}
+
+/**
+ * @brief with_repo_errors + an after-response side effect (email dispatch,
+ *        enqueue, webhook fire). @p after_fn runs only if @p fn completed
+ *        without throwing, and runs OUTSIDE the catch ladder above — so a
+ *        throwing side effect can log, but can never be translated into a
+ *        SECOND cb(...) invocation after the response was already sent.
+ *
+ * Incident this encodes (downstream billing fork, site cd8279c): a
+ * receipt-email dispatch placed INSIDE the guarded lambda threw after
+ * callback() had already fired the success response; with_repo_errors' own
+ * catch then mapped the throw and invoked callback() a second time. The fix
+ * was to stash the result in a std::optional captured by reference and
+ * dispatch after with_repo_errors returned. This overload is that discipline
+ * as an API:
+ *
+ *   std::optional<Result> result;
+ *   with_repo_errors(callback, "op",
+ *       [&] { ...; callback(Response::ok(...)); result = r; },
+ *       [&] { if (result) dispatch_email(*result); });
+ *
+ * Note @p after_fn runs whenever @p fn completed (even if @p fn responded
+ * with its own early-return error) — gate domain conditions inside after_fn,
+ * e.g. on the stashed optional as above. Exceptions from after_fn are logged
+ * and swallowed: the response is already on the wire, there is nothing
+ * correct left to send.
+ */
+template <typename Fn, typename AfterFn>
+inline bool with_repo_errors(const std::function<void(const drogon::HttpResponsePtr&)>& cb,
+                             const char* op,
+                             Fn&& fn,
+                             AfterFn&& after_fn) {
+    const bool completed = with_repo_errors(cb, op, std::forward<Fn>(fn));
+    if (!completed)
+        return false;
+    // Deliberately OUTSIDE any cb-invoking try/catch — see the doc comment.
+    try {
+        after_fn();
+    } catch (const std::exception& e) {
+        spdlog::error("{}: after-response side effect failed: {}", op, e.what());
+    } catch (...) {
+        spdlog::error("{}: after-response side effect failed with a non-std exception", op);
+    }
+    return true;
 }
 
 }  // namespace Api
