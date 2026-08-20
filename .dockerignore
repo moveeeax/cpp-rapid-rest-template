@@ -39,7 +39,10 @@ logs/
 # Dependencies
 vcpkg/
 vcpkg_installed/
-third_party/
+# `third_party/*` + negation, NOT `third_party/`: excluding the directory
+# prevents the vendored inja header below from re-entering the build context.
+third_party/*
+!third_party/inja-include/
 external/
 node_modules/
 
