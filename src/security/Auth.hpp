@@ -231,9 +231,16 @@ inline AuthConfig load_config_from_global() {
     // Single source of truth for public paths across Auth + RateLimit +
     // Idempotency. Module-specific override keys intentionally NOT supported
     // to prevent drift between middlewares.
+    //
+    // api.public_paths is a FULL OVERRIDE of the built-in default;
+    // api.public_paths_extra is ADDITIVE (appended to whichever base won).
+    // The extra key exists because two deployments independently hit the same
+    // trap: a route added only to kDefaultPublicPathsCsv (content module, a
+    // fork's PayPal webhook) 401'd everywhere the override key was set.
     std::string paths_csv =
         c.get<std::string>("api.public_paths", "API_PUBLIC_PATHS", Utils::Strings::kDefaultPublicPathsCsv);
-    cfg.public_paths = Utils::Strings::split_csv_set(paths_csv);
+    std::string extra_csv = c.get<std::string>("api.public_paths_extra", "API_PUBLIC_PATHS_EXTRA", "");
+    cfg.public_paths = Utils::Strings::merge_csv_sets(paths_csv, extra_csv);
 
     if (cfg.mode == AuthMode::Jwt && cfg.jwt_secret.empty()) {
         throw std::runtime_error("auth.mode=jwt but JWT_SECRET is empty — set auth.jwt.secret or JWT_SECRET env");

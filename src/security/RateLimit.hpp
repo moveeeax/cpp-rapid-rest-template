@@ -219,9 +219,11 @@ inline Config load_config_from_global() {
     cfg.scope = parse_scope(c.get<std::string>("rate_limit.scope", "RATE_LIMIT_SCOPE", "ip_or_user"));
     cfg.whitelist =
         Utils::Strings::split_csv_set(c.get<std::string>("rate_limit.whitelist", "RATE_LIMIT_WHITELIST", ""));
-    // Single source of truth — see comment in Auth.hpp::load_config_from_global().
-    cfg.public_paths = Utils::Strings::split_csv_set(
-        c.get<std::string>("api.public_paths", "API_PUBLIC_PATHS", Utils::Strings::kDefaultPublicPathsCsv));
+    // Single source of truth — see comment in Auth.hpp::load_config_from_global()
+    // (api.public_paths = full override; api.public_paths_extra = additive).
+    cfg.public_paths = Utils::Strings::merge_csv_sets(
+        c.get<std::string>("api.public_paths", "API_PUBLIC_PATHS", Utils::Strings::kDefaultPublicPathsCsv),
+        c.get<std::string>("api.public_paths_extra", "API_PUBLIC_PATHS_EXTRA", ""));
     cfg.protected_paths = Utils::Strings::split_csv_set(c.get<std::string>(
         "rate_limit.protected_paths", "RATE_LIMIT_PROTECTED_PATHS", Utils::Strings::kDefaultProtectedPathsCsv));
     if (cfg.requests <= 0)

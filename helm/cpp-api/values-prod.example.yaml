@@ -154,3 +154,5 @@ auth:
     enabled: true
     secure: true
     samesite: Lax
+  csrf:
+    enabled: true   # cookie auth in prod without CSRF trips the boot warning

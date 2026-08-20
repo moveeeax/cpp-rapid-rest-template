@@ -348,7 +348,7 @@ public:
         } else {
             // Max retries exceeded — send to dead-letter queue for inspection.
             // DLQ entries are NOT reaped by result_ttl_ (operator must drain
-            // or requeue them explicitly via /api/jobs/dlq/{id}/requeue).
+            // or requeue them explicitly via /api/v1/jobs/dlq/{id}/requeue).
             job.status = "dead";
             job.error = error;
             redis.set(job_key(id), job.to_json().dump());
