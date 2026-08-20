@@ -248,6 +248,7 @@ jobs:
 content:
   enabled: false
 
+
 # ---------------------------------------------------------------
 # Rate limiting — Redis-backed throttle applied by the middleware chain
 # (notably on /api/auth/login). The C++ code defaults RATE_LIMIT_ENABLED to
@@ -308,7 +309,7 @@ server:
 # Keep jwtSecret/issuer/audience in sync with the cpp-worker chart (it signs
 # the same transactional-email link tokens).
 # Env: AUTH_MODE, JWT_SECRET, JWT_ISSUER, JWT_AUDIENCE, AUTH_COOKIES_ENABLED,
-#      AUTH_COOKIE_SECURE, AUTH_COOKIE_SAMESITE
+#      AUTH_COOKIE_SECURE, AUTH_COOKIE_SAMESITE, SECURITY_CSRF_ENABLED
 # ---------------------------------------------------------------
 auth:
   mode: jwt            # none | bearer | jwt — default jwt so a bare subchart install never ships a public API; an empty jwtSecret then fail-closes at boot
@@ -325,6 +326,11 @@ auth:
     # dev, rename these (e.g. "access" / "refresh") AND set secure=false together.
     access: __Host-access
     refresh: __Host-refresh
+  # CSRF double-submit token (SECURITY_CSRF_ENABLED). Enable together with
+  # cookies in production — the app warns at boot when cookies are on and this
+  # is off. The SPA already echoes the csrf-token cookie on mutations.
+  csrf:
+    enabled: false
 
 # ---------------------------------------------------------------
 # Application — public URL/name the API renders into transactional email links

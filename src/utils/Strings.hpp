@@ -31,6 +31,16 @@ namespace Utils::Strings {
  * storage backend, post bodies embed same-origin image URLs
  * (UploadController::serveUpload) that anonymous readers have to be able to
  * fetch.
+ * Config semantics — two keys, two behaviors:
+ *   - `api.public_paths` / `API_PUBLIC_PATHS` REPLACES this default wholesale.
+ *     Forget one default entry in the override and that route starts 401ing —
+ *     this bit both the content module (docs/CONFIG.md, Content section) and a
+ *     downstream fork's PayPal webhook, which was added only to this constant
+ *     and silently died under any deployment that set the override key.
+ *   - `api.public_paths_extra` / `API_PUBLIC_PATHS_EXTRA` is ADDITIVE: its
+ *     entries are appended to whichever base won above. To open ONE new route
+ *     (a payment-provider webhook, a public feed), use the extra key — never
+ *     re-list the world.
  * (Route globs are spelled without the star in this comment on purpose: a
  * slash-star pair inside a block comment trips -Wcomment, and CI is -Werror.)
  */
@@ -112,6 +122,17 @@ inline std::vector<std::string> split_csv_vec(const std::string& csv) {
 inline std::unordered_set<std::string> split_csv_set(const std::string& csv) {
     auto v = split_csv_vec(csv);
     return {v.begin(), v.end()};
+}
+
+/// Base CSV (full-override semantics) + extra CSV (additive semantics) → one
+/// set. This is THE way `api.public_paths` and `api.public_paths_extra` are
+/// combined — Auth and RateLimit both call it so the two middlewares can't
+/// disagree about what the extra key means. Empty extra is a no-op.
+inline std::unordered_set<std::string> merge_csv_sets(const std::string& base_csv, const std::string& extra_csv) {
+    auto out = split_csv_set(base_csv);
+    for (auto& p : split_csv_vec(extra_csv))
+        out.insert(std::move(p));
+    return out;
 }
 
 /// Partially redact an email for logs: keep the first local char and the full

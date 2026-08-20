@@ -441,7 +441,7 @@ inline void register_tracing_pre() {
                 if (auto remote = detail::to_remote_span_context(*parsed))
                     opts.parent = *remote;
             }
-            // Normalized operation name ("GET /api/jobs/:id"): raw paths would
+            // Normalized operation name ("GET /api/v1/jobs/:id"): raw paths would
             // mint a new Jaeger operation per UUID and leak account tokens.
             auto span = tracer->StartSpan(
                 std::string(req->getMethodString()) + " " + route,

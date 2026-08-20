@@ -11,6 +11,8 @@ map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
 - Single endpoint: `./scripts/new-endpoint.sh FooController Get /api/v1/foo
   [--with-test] [--patch-openapi]`
 - Background job: `./scripts/new-job.sh <type>`
+- Feature module (config flag + `Core::<name>_enabled()` + compose/helm/docs
+  wiring): `./scripts/new-module.sh <name>`
 - Migration: `make new-migration SLUG=<slug>`
 - React page: `./scripts/new-react-page.sh`
 
@@ -74,6 +76,22 @@ helm-render and the OpenAPI-drift gate.
   `CMakeLists.txt` `project(VERSION …)` and must match the newest
   CHANGELOG heading (`scripts/check-version-sync.sh` gates it).
 - Don't change the error-response shape without updating `docs/openapi.yaml`.
+- Don't accumulate with a self-referencing upsert through
+  `Database::execute_write` — `INSERT ... ON CONFLICT DO UPDATE SET x = t.x +
+  EXCLUDED.x` has computed as though the existing row were absent (every
+  second-or-later write counted from zero; root cause never found — forensics
+  in the site fork's commit b676430). Pattern instead: `INSERT ... ON CONFLICT
+  DO NOTHING` → `SELECT ... FOR UPDATE` → compute the new value in C++ →
+  plain `UPDATE`.
+- Don't use inja's default `{#`/`#}` comment markers in templates that carry
+  TeX-like content — a `#1`-style macro parameter (`{#1}`) opens an inja
+  comment that never closes and the whole render dies with a parser error at
+  EOF. Remap via `Environment::set_comment` (the cyber-accountant fork uses
+  `((#`/`#))`).
+- Don't open a new auth-public route by editing `api.public_paths` (it's a
+  FULL override — re-listing the default set is how routes get silently
+  dropped) — add it to the additive `api.public_paths_extra` /
+  `API_PUBLIC_PATHS_EXTRA` instead.
 
 ## Self-maintenance
 
