@@ -295,12 +295,16 @@ public:
         if (!body.contains("permissions") || !body["permissions"].is_number_integer()) {
             errs.add("permissions", "invalid_type", "must be an integer bitmask");
         }
+        Validation::boolean(errs, body, "is_default");
         if (errs.any()) {
             callback(Validation::response_400(errs));
             return;
         }
         const auto perms = static_cast<std::uint32_t>(body["permissions"].get<long>());
-        const bool is_default = body.value("is_default", false);
+        // Explicit null passes Validation::boolean (absent == null == "default"),
+        // but body.value(k, false) would throw type_error.302 on it.
+        const bool has_is_default = body.contains("is_default") && body["is_default"].is_boolean();
+        const bool is_default = has_is_default && body["is_default"].get<bool>();
         with_repo_errors(callback, "admin createRole", [&] {
             Repositories::RoleRepository repo;
             auto created = repo.create(body["name"].get<std::string>(), perms, is_default);

@@ -56,6 +56,9 @@ struct WidgetExists : Repositories::ConflictError {
 struct WidgetNotFound : Repositories::NotFoundError {
     WidgetNotFound() : NotFoundError("widget") {}
 };
+struct WidgetBadInput : Repositories::ValidationError {
+    WidgetBadInput() : ValidationError("widget_bad_id", "widget id is not a uuid") {}
+};
 
 TEST(WithRepoErrors, NoThrowReturnsTrueAndDoesNotRespond) {
     auto cap = run([] {});
@@ -75,6 +78,15 @@ TEST(WithRepoErrors, UserNotFoundMaps404) {
     EXPECT_EQ(cap.status, 404);
     EXPECT_EQ(cap.error, "not_found");
     EXPECT_NE(cap.message.find("user"), std::string::npos);
+}
+
+// Malformed input at the SQL boundary (e.g. SQLSTATE 22P02, a non-UUID id)
+// maps by BASE class to 400 — before ValidationError existed this was a bare
+// 500 (found downstream: site billing routes, b676430).
+TEST(WithRepoErrors, ValidationErrorMapsByBase400) {
+    auto cap = run([] { throw WidgetBadInput{}; });
+    EXPECT_EQ(cap.status, 400);
+    EXPECT_EQ(cap.error, "widget_bad_id");
 }
 
 // The decoupling guarantee: an exception type HandlerSupport doesn't know,

@@ -11,6 +11,7 @@ x-data-env: &data-env
   REDIS_SENTINEL_NODES: ${REDIS_SENTINEL_NODES:-}
   REDIS_PASSWORD: ${REDIS_PASSWORD:-}
   REDIS_SENTINEL_PASSWORD: ${REDIS_SENTINEL_PASSWORD:-}
+  REDIS_DB: ${REDIS_DB:-0}
 
 # Auth — JWT in HttpOnly cookies. Defaults keep auth disabled so `make up`
 # stays open. The `with-frontend` profile / .env.everything flips
