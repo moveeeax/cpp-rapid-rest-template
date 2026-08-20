@@ -43,11 +43,7 @@ protected:
         TestHelpers::CoreBackedTest::SetUp();
         if (::testing::Test::IsSkipped())
             return;
-        Database::get().execute_write([](auto& txn) {
-            txn.exec("TRUNCATE TABLE users CASCADE");
-            txn.exec("TRUNCATE TABLE audit_log");
-            return 0;
-        });
+        TestHelpers::wipe_app_data();
     }
 
     struct Pair {
