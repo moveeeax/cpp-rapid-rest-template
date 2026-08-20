@@ -41,6 +41,7 @@ constexpr const char* kSecret = "test-jwt-secret-for-uploads-api-flow-pad";
 // Signature prefixes the sniff looks for (see Api::image_bytes_match).
 // std::string(ptr, len) — the const char* ctor would stop at the PNG NUL.
 const std::string kPngMagic("\x89PNG\r\n\x1a\n", 8);
+const std::string kGifMagic("GIF89a", 6);
 
 // Build the multipart/form-data POST the admin editor's fetch() sends.
 HttpRequestPtr upload_request(const std::string& filename,
@@ -89,11 +90,7 @@ protected:
         TestHelpers::CoreBackedTest::SetUp();
         if (::testing::Test::IsSkipped())
             return;
-        Database::get().execute_write([](auto& txn) {
-            txn.exec("TRUNCATE TABLE users CASCADE");
-            txn.exec("DELETE FROM roles WHERE name NOT IN ('User', 'Administrator')");
-            return 0;
-        });
+        TestHelpers::wipe_app_data();
     }
 
     void TearDown() override {
@@ -152,7 +149,73 @@ protected:
     HttpResponsePtr deleteAs(const Security::Auth::AuthPrincipal& p, const std::string& name) {
         return call([&](auto cb) { controller.deleteUpload(TestHelpers::authed(p, Delete), std::move(cb), name); });
     }
+
+    std::size_t stored_count() { return Storage::get().list("posts/").size(); }
 };
+
+// ── POST validation chain: one test per rejection reason. Each also asserts
+// nothing was written — a rejection that still stores would be worse than no
+// check at all. Ported from the tarassov.me fork (test_uploads_admin.cpp,
+// template issue #12). ─────────────────────────────────────────────────────
+
+TEST_F(UploadsApiTest, UploadRejectsSvgAndOtherNonRasterExtensions) {
+    auto admin = seed_admin();
+    // SVG can carry inline <script>; `nosniff` does not neutralize it when
+    // served as image/svg+xml same-origin. Rejected on the extension, before
+    // the sniff ever runs.
+    const std::string svg = R"(<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>)";
+    auto svg_resp = uploadAs(admin.principal, "logo.svg", "image/svg+xml", svg);
+    ASSERT_EQ(svg_resp->statusCode(), k400BadRequest) << svg_resp->body();
+    EXPECT_EQ(json::parse(std::string(svg_resp->body()))["error"].get<std::string>(), "unsupported_type");
+
+    for (const char* name : {"note.txt", "page.html", "payload.bmp", "noextension"}) {
+        auto resp = uploadAs(admin.principal, name, "application/octet-stream", kPngMagic + "payload");
+        EXPECT_EQ(resp->statusCode(), k400BadRequest) << name;
+        EXPECT_EQ(json::parse(std::string(resp->body()))["error"].get<std::string>(), "unsupported_type") << name;
+    }
+    EXPECT_EQ(stored_count(), 0u) << "a rejected upload was stored anyway";
+}
+
+TEST_F(UploadsApiTest, UploadRejectsContentThatDoesNotMatchTheExtension) {
+    auto admin = seed_admin();
+    const std::string html = "<!DOCTYPE html><html><body><script>alert(1)</script></body></html>";
+    auto resp = uploadAs(admin.principal, "pic.png", "image/png", html);
+    ASSERT_EQ(resp->statusCode(), k400BadRequest) << resp->body();
+    EXPECT_EQ(json::parse(std::string(resp->body()))["error"].get<std::string>(), "bad_content");
+
+    auto mismatched = uploadAs(admin.principal, "pic.png", "image/png", kGifMagic + "payload");
+    ASSERT_EQ(mismatched->statusCode(), k400BadRequest) << mismatched->body();
+    EXPECT_EQ(json::parse(std::string(mismatched->body()))["error"].get<std::string>(), "bad_content");
+
+    auto truncated = uploadAs(admin.principal, "pic.png", "image/png", kPngMagic.substr(0, 4));
+    ASSERT_EQ(truncated->statusCode(), k400BadRequest) << truncated->body();
+    EXPECT_EQ(json::parse(std::string(truncated->body()))["error"].get<std::string>(), "bad_content");
+
+    EXPECT_EQ(stored_count(), 0u) << "a rejected upload was stored anyway";
+}
+
+TEST_F(UploadsApiTest, UploadRejectsFilesOverTheSizeCap) {
+    auto admin = seed_admin();
+    constexpr std::size_t kMaxBytes = 5 * 1024 * 1024;
+    std::string oversized = kPngMagic;
+    oversized.append(kMaxBytes + 1 - kPngMagic.size(), 'x');
+    ASSERT_EQ(oversized.size(), kMaxBytes + 1);
+
+    auto resp = uploadAs(admin.principal, "big.png", "image/png", oversized);
+    ASSERT_EQ(resp->statusCode(), k400BadRequest) << resp->body();
+    EXPECT_EQ(json::parse(std::string(resp->body()))["error"].get<std::string>(), "bad_size");
+    EXPECT_EQ(stored_count(), 0u) << "an oversized upload was stored anyway";
+}
+
+TEST_F(UploadsApiTest, UploadRejectsARequestWithNoFilePart) {
+    auto admin = seed_admin();
+    auto req = TestHelpers::with_principal(TestHelpers::make_request(Post), admin.principal);
+    req->setBody("not multipart at all");
+    auto resp = call([&](auto cb) { controller.upload(req, std::move(cb)); });
+    ASSERT_EQ(resp->statusCode(), k400BadRequest) << resp->body();
+    EXPECT_EQ(json::parse(std::string(resp->body()))["error"].get<std::string>(), "no_file");
+    EXPECT_EQ(stored_count(), 0u);
+}
 
 // ── Fixture: content module DISABLED (default) ──────────────────────────────
 class UploadsApiContentDisabledTest : public UploadsApiTest {

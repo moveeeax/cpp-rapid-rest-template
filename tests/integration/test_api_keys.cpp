@@ -32,11 +32,9 @@ protected:
         TestHelpers::CoreBackedTest::SetUp();
         if (::testing::Test::IsSkipped())
             return;
-        // CASCADE also clears api_keys (FK ON DELETE CASCADE).
-        Database::get().execute_write([](auto& txn) {
-            txn.exec("TRUNCATE TABLE users CASCADE");
-            return 0;
-        });
+        // The users CASCADE inside wipe_app_data also clears api_keys
+        // (FK ON DELETE CASCADE).
+        TestHelpers::wipe_app_data();
     }
 
     Security::Auth::AuthPrincipal seed_user(const std::string& email) {
