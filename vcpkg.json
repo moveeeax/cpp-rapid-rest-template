@@ -17,6 +17,6 @@
     "nlohmann-json",
     "gtest"
   ],
-  "$comment": "libsodium and libcurl come from the OS (apt: libsodium-dev, libcurl4-openssl-dev) — vcpkg's libsodium port fails to build on arm64-linux. inja is fetched header-only via CMake FetchContent (see CMakeLists.txt). Both choices keep the docker build green on x86_64 and arm64.",
+  "$comment": "libsodium and libcurl come from the OS (apt: libsodium-dev, libcurl4-openssl-dev) — vcpkg's libsodium port fails to build on arm64-linux. inja is vendored as a single header in third_party/inja-include (SHA256-asserted in CMakeLists.txt). Both choices keep the docker build green on x86_64 and arm64.",
   "builtin-baseline": "c4aad2868cfbe7c364192d5de82385647f8425b1"
 }

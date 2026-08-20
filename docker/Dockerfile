@@ -58,7 +58,14 @@ RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/nul
 # (you'll also want to bump builtin-baseline in vcpkg.json to match).
 ARG VCPKG_REF=c4aad2868cfbe7c364192d5de82385647f8425b1
 WORKDIR /opt
-RUN git clone --filter=blob:none https://github.com/microsoft/vcpkg.git && \
+# The clone itself is a GitHub fetch and can hit transient 429/400 — retry it
+# the same way as the vcpkg install below.
+RUN for attempt in 1 2 3; do \
+        git clone --filter=blob:none https://github.com/microsoft/vcpkg.git && break; \
+        rc=$?; rm -rf vcpkg; \
+        if [ "$attempt" = 3 ]; then exit "$rc"; fi; \
+        echo "vcpkg clone failed (attempt $attempt) — transient GitHub error; retrying in 20s"; sleep 20; \
+    done && \
     cd vcpkg && \
     git checkout "$VCPKG_REF" && \
     ./bootstrap-vcpkg.sh
@@ -85,9 +92,20 @@ COPY vcpkg.json ./
 # vcpkg then extracts tools (ninja) into the same path from both legs and one
 # leg executes the other's binary (release v1.5.0 failed exactly this way).
 ARG TARGETARCH
+# vcpkg fetches dependency tarballs from GitHub, which intermittently returns
+# 400/429 and aborts the build (vcpkg mis-classifies it as non-transient and
+# won't retry itself — downstream bump: tarassov.me 229672f). Retry the
+# install so a flaky fetch self-heals: thanks to the downloads/binary cache
+# mounts above, a retry only redoes the failed fetch/port, while a real
+# compile failure reproduces identically and still fails after attempt 3.
 RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETARCH} \
     --mount=type=cache,target=/root/.cache/vcpkg,id=vcpkg-cache-${TARGETARCH} \
-    vcpkg install --x-install-root=/app/build/vcpkg_installed
+    for attempt in 1 2 3; do \
+        vcpkg install --x-install-root=/app/build/vcpkg_installed && break; \
+        rc=$?; \
+        if [ "$attempt" = 3 ]; then exit "$rc"; fi; \
+        echo "vcpkg install failed (attempt $attempt) — retrying in 30s (transient GitHub fetch?)"; sleep 30; \
+    done
 
 # Copy source code (after the dep layer, so editing src/ never rebuilds deps).
 COPY . .

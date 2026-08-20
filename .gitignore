@@ -81,7 +81,14 @@ config/local/
 !config/config.sample.json
 
 # Dependencies
-third_party/
+# `third_party/*`, NOT `third_party/`: excluding the directory itself stops
+# git from descending into it, and negations for files inside then never fire.
+third_party/*
+# EXCEPTION: the vendored inja single header. It MUST be in the repo — CMake
+# used to download it from GitHub at configure time, and a GitHub 429 made
+# clean builds unable to configure at all. Its SHA256 is asserted in
+# CMakeLists.txt.
+!third_party/inja-include/
 external/
 
 # Package managers
