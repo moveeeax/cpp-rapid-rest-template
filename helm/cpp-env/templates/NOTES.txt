@@ -31,5 +31,7 @@ Create an admin once Postgres is ready:
     env METRICS_ADDRESS= /app/cpp_api_template config/config.json \
     --create-admin admin@{{ .Values.env }}.{{ .Values.baseDomain }} 'change-me'
 
-NOTE: credentials here are TEST defaults (see values.yaml credentials:). For a
-sensitive env, override all of them via --set.
+NOTE: chart credential defaults are EMPTY — this install only works because
+you passed them via --set (see the values.yaml header for the full list).
+Generate throwaway ones per env like scripts/deploy-demo.sh does; never
+commit them to a tracked overlay (check-helm-render.sh gates that).
