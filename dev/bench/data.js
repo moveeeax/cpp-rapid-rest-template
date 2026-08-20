@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787200371211,
+  "lastUpdate": 1787200373734,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -1368,6 +1368,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "idle RSS",
             "value": 4,
+            "unit": "MB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "id": "9535dcb00ff23230cf2d0c7e51be23b93a270c0b",
+          "message": "docs: changelog for 1.5.3",
+          "timestamp": "2026-08-09T11:45:46Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/9535dcb00ff23230cf2d0c7e51be23b93a270c0b"
+        },
+        "date": 1787200372899,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "healthz p50",
+            "value": 7.03,
+            "unit": "ms"
+          },
+          {
+            "name": "healthz p99",
+            "value": 20.49,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p50",
+            "value": 20.34,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p99",
+            "value": 45.32,
+            "unit": "ms"
+          },
+          {
+            "name": "runtime image size",
+            "value": 107.5,
+            "unit": "MB"
+          },
+          {
+            "name": "cold start to /ready",
+            "value": 901,
+            "unit": "ms"
+          },
+          {
+            "name": "idle RSS",
+            "value": 4.1,
             "unit": "MB"
           }
         ]
