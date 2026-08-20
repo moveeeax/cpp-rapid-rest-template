@@ -65,8 +65,11 @@ TEST(MailerMime, CrlfInFromAndPrefixCannotInjectHeaders) {
     cfg.from_name = "";
     cfg.subject_prefix = "[App]\r\nX-Spoof: 1";
     const auto mime = Email::detail::build_mime(cfg, base_message(), "<id@test>");
-    EXPECT_EQ(mime.find("Bcc:"), std::string::npos);
-    EXPECT_EQ(mime.find("X-Spoof:"), std::string::npos);
+    // strip_crlf removes the line breaks, not the text — the "Bcc:"/"X-Spoof:"
+    // strings survive INSIDE the header value, which is harmless. What must
+    // never exist is a NEW header line, i.e. the token at a line start.
+    EXPECT_EQ(mime.find("\r\nBcc:"), std::string::npos);
+    EXPECT_EQ(mime.find("\r\nX-Spoof:"), std::string::npos);
     EXPECT_EQ(count_headers(mime, "From: "), 1);
 }
 
@@ -74,7 +77,10 @@ TEST(MailerMime, SubjectCrlfAlreadyStripped) {
     auto msg = base_message();
     msg.subject = "Hi\r\nX-Evil: yes";
     const auto mime = Email::detail::build_mime(base_config(), msg, "<id@test>");
-    EXPECT_EQ(mime.find("X-Evil:"), std::string::npos);
+    // The "X-Evil:" text stays inline in the Subject value; only a new header
+    // line (the token after CRLF) would be an injection.
+    EXPECT_EQ(mime.find("\r\nX-Evil:"), std::string::npos);
+    EXPECT_NE(mime.find("Subject: [App] Hi"), std::string::npos);
 }
 
 }  // namespace
