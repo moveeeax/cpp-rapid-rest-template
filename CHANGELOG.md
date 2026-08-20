@@ -6,6 +6,87 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Wave 2 — "downstream hardening": a three-fork audit (site, cyber-accountant,
+tarassov.me) backported every generic fix and gate the forks paid for
+(spec/plan in `docs/superpowers/`, PRs #17–#23, #27).
+
+### Security
+- `.gitleaks.toml` gained the load-bearing `[extend] useDefault` — a config
+  carrying only an `[allowlist]` runs gitleaks v8 with ZERO rules, so the
+  secret scan had been vacuously green. Allowlist is value-scoped; work-tree
+  scans use the new `.gitleaks.worktree.toml`. (#17)
+- Helm umbrella credential defaults are EMPTY (deploys pass them via `--set`;
+  the API fail-closes on an empty/short JWT secret). The previous public
+  placeholder JWT key was silently inherited by a downstream production
+  release and verified real tokens. `check-helm-render.sh` now asserts no
+  tracked overlay renders a non-empty credential Secret. (#17)
+- Umbrella placeholder Postgres/api/app-ingress render behind
+  `postgres.enabled` / `ingress.enabled` guards. (#17)
+- Email HTML templates escape every context string (inja has no autoescaping);
+  `build_mime` strips CRLF/quoted-string metacharacters from From/Subject
+  metadata; `--dump-config` masks credentials. (#18)
+
+### Fixed
+- `check-test-buckets.sh` scanned only its first directory argument —
+  `tests/api/` was never checked. `CI_REQUIRE_INFRA` is now actually exported
+  in CI (missing test infra fails loudly instead of SKIP-and-green). App
+  version un-stuck from 1.4.0 (three releases stale) and gated by
+  `check-version-sync.sh`; release builds stamp the git tag into the binary.
+  (#19)
+- Image tag pins matched to what release.yml actually publishes (unprefixed;
+  the `v1.4.0` pins pointed at GHCR tags that never existed). (#17)
+- Short-circuited middleware responses (401/403/415/429/idempotency-replay/
+  CORS preflight) now carry X-Request-Id, security headers, an access-log
+  line and a metric sample — they used to bypass the whole pre/post chain.
+  Content-Type comparison is case-insensitive per RFC 9110. `Config::get<T>`
+  no longer swallows type errors (string leaves coerce like env vars; garbage
+  logs at ERROR). Primary and replica DSNs get a bounded `connect_timeout`.
+  Wrong-typed JSON fields (e.g. `{"password":123}`) return the 400 envelope
+  instead of a bare 500, and a global exception handler keeps the canonical
+  error shape on paths outside `with_repo_errors`. Nav highlights on path-
+  segment boundaries. Stale pre-versioning `/api/jobs` references swept
+  (`smoke.sh` assertion could never match). (#21, #27)
+- Migrations record a sha256 checksum; editing an applied migration now fails
+  boot with an explanation instead of silently never reaching migrated
+  databases. (#20)
+
+### Added
+- `REDIS_DB` / `cache.db` logical-database isolation end-to-end (standalone,
+  Sentinel, worker BRPOP client, compose, both charts, docs) for sharing one
+  Redis instance between apps. (#21)
+- `api.public_paths_extra` — ADDITIVE public-paths key; the full-override
+  `api.public_paths` trap 401'd content-module routes and a fork's payment
+  webhook twice. (#27)
+- `scripts/new-module.sh` — scaffolds a feature-module master switch through
+  config, `Core::<name>_enabled()`, compose and both helm charts in one
+  command. 4-arg `with_repo_errors(cb, op, fn, after_fn)` for after-response
+  side effects that can never double-fire the callback. `auth.csrf.enabled`
+  in the cpp-api chart. (#27)
+- CI: `runtime-smoke` job (builds+starts the release images, checks `ldd` and
+  the CA bundle), frontend nginx compose↔helm drift gate. (#19)
+- `docs/UPSTREAM.md` (fork↔template sync + backport-candidate discipline) and
+  `docs/CI-PROFILES.md` (hosted vs self-hosted runners, arm64 verdict).
+  (#22, #23)
+
+### Changed
+- inja is vendored (`third_party/inja-include`, SHA256-asserted) instead of
+  downloaded at configure time — GitHub 429s could stop CI from configuring.
+  `make fmt`/`lint-format` refuse to run with a non-17 clang-format major
+  (the CI pin). vcpkg clone/install retried 3× in the Dockerfile. Heavy CI
+  jobs 60→90 min so a cold vcpkg rebuild can finish and export its cache.
+  (#23)
+- `release.yml` publishes under `ghcr.io/${{ github.repository }}` — forks
+  release under their own namespace with zero edits. `autofix.yml` syncs the
+  frontend lockfile before `npm ci`. `init-project.sh` regenerates
+  `helm/*/Chart.lock` after chart renames and rewrites the Makefile
+  `GHCR_ORG` default. (#22)
+- Test fixtures no longer bind a Prometheus exposer (a flat ~2 s TearDown tax
+  per Core-backed test) and default to `auth.mode=jwt` so RBAC guards are
+  actually exercised (they were no-ops under `none`). Multi-table cleanup
+  goes through `TestHelpers::wipe_app_data()`. Upload 400-paths and storage
+  list()/magic-byte validation tests ported from the content module's origin
+  fork (closes #12). (#20)
+
 ## [1.5.3] — 2026-08-09
 
 ### Fixed
