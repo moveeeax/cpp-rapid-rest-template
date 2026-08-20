@@ -126,8 +126,11 @@ public:
         if (!Validation::parse_body(req, body, callback))
             return;
         Validation::Errors errs;
-        Validation::require(errs, body, "email");
-        Validation::require(errs, body, "password");
+        // require_string, not require: a wrong-typed field ({"password": 123})
+        // would otherwise reach get<std::string>() and throw type_error.302 —
+        // a bare 500 on an unauthenticated endpoint instead of a 400.
+        Validation::require_string(errs, body, "email");
+        Validation::require_string(errs, body, "password");
         if (errs.any()) {
             callback(Validation::response_400(errs));
             return;

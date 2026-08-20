@@ -247,8 +247,12 @@ private:
         std::vector<std::string> replicas;
         const char* replica_env = std::getenv("DATABASE_REPLICA_URLS");
         if (replica_env && std::strlen(replica_env) > 0) {
+            // Operator-supplied replica URLs need the same bounded connect as
+            // the primary — a blackholed replica must fail fast, not hang read
+            // traffic for the ~2-min OS SYN-retry window. (The HOSTS form below
+            // goes through make_conninfo, which already appends it.)
             for (auto& s : Utils::Strings::split_csv_vec(replica_env)) {
-                replicas.push_back(std::move(s));
+                replicas.push_back(Utils::Pg::with_connect_timeout(s));
             }
             return replicas;
         }
@@ -289,6 +293,9 @@ private:
             primary = Utils::Pg::make_conninfo(host, port, user, name, password);
         } else {
             check_password_safety(primary);
+            // A user-supplied URL/DSN also needs a bounded connect, else a
+            // blackholed endpoint wedges request threads for ~2 min.
+            primary = Utils::Pg::with_connect_timeout(primary);
         }
         int pool_size = cfg.get<int>("database.pool_size", "DB_POOL_SIZE", 10);
         int acquire_ms = cfg.get<int>("database.acquire_timeout_ms", "DB_ACQUIRE_TIMEOUT_MS", 5000);
@@ -374,14 +381,20 @@ private:
         int pool_wait_ms = cfg.get<int>("cache.pool_wait_timeout_ms", "REDIS_POOL_WAIT_TIMEOUT_MS", 500);
         auto sock_to = std::chrono::milliseconds(std::max(1, socket_timeout_ms));
         auto pool_to = std::chrono::milliseconds(std::max(1, pool_wait_ms));
+        // Logical Redis DB index — REQUIRED whenever this Redis instance is
+        // shared with another app (see docs/CONFIG.md): without it, queue/
+        // rate-limit/idempotency/session keys collide with the other app's
+        // identically named keys. Authoritative over any "/N" in cache.url
+        // (parse_redis_url does not read one).
+        int redis_db = cfg.get<int>("cache.db", "REDIS_DB", 0);
 
         if (use_sentinel) {
             auto master = cfg.get<std::string>("cache.sentinel.master_name", "REDIS_MASTER_NAME", "mymaster");
             Cache::initialize_with_sentinel(
-                master, read_sentinels_(cfg), pool_size, password, sentinel_password, sock_to, pool_to);
+                master, read_sentinels_(cfg), pool_size, password, sentinel_password, sock_to, pool_to, redis_db);
         } else {
             auto url = cfg.get<std::string>("cache.url", "REDIS_URL", "tcp://127.0.0.1:6379");
-            Cache::initialize(url, pool_size, password, sock_to, pool_to);
+            Cache::initialize(url, pool_size, password, sock_to, pool_to, redis_db);
         }
     }
 

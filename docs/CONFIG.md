@@ -148,6 +148,7 @@ handlers **plus** the worker, even when replicas absorb the bulk of reads.
 |---|---|---|---|---|
 | `REDIS_URL` | `cache.url` | string | `tcp://127.0.0.1:6379` | Standalone mode |
 | `REDIS_PASSWORD` | `cache.password` | string | — | |
+| `REDIS_DB` | `cache.db` | int | `0` | Logical Redis DB index (`SELECT n`, via `ConnectionOptions.db`). **Set this whenever the Redis instance is shared with another application** — job-queue (`jobs:queue:*`), rate-limit, idempotency and refresh-token-revocation keys aren't prefixed per app, so two apps on the same DB collide. Applies to standalone AND Sentinel connections, and to the worker's separate blocking-BRPOP client — API and worker must use the same value. `parse_redis_url()` does NOT read a trailing `/N` from `REDIS_URL` — use `REDIS_DB`, not the URL. |
 | `CACHE_POOL_SIZE` | `cache.pool_size` | int | `10` | |
 | `REDIS_USE_SENTINEL` | `cache.use_sentinel` | bool | `false` | |
 | `REDIS_MASTER_NAME` | `cache.sentinel.master_name` | string | `mymaster` | |

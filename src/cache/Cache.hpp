@@ -88,10 +88,12 @@ inline std::unique_ptr<Redis> make_standalone_client(const std::string& host,
                                                      size_t pool_size,
                                                      const std::string& password,
                                                      std::chrono::milliseconds socket_timeout,
-                                                     std::chrono::milliseconds pool_wait_timeout) {
+                                                     std::chrono::milliseconds pool_wait_timeout,
+                                                     int db = 0) {
     ConnectionOptions opts;
     opts.host = host;
     opts.port = port;
+    opts.db = db;
     opts.socket_timeout = socket_timeout;
     if (!password.empty())
         opts.password = password;
@@ -110,7 +112,8 @@ inline std::unique_ptr<Redis> make_sentinel_client(const std::string& master_nam
                                                    const std::string& password,
                                                    const std::string& sentinel_password,
                                                    std::chrono::milliseconds socket_timeout,
-                                                   std::chrono::milliseconds pool_wait_timeout) {
+                                                   std::chrono::milliseconds pool_wait_timeout,
+                                                   int db = 0) {
     const std::string effective_sentinel_pw = sentinel_password.empty() ? password : sentinel_password;
     SentinelOptions sentinel_opts;
     for (const auto& [host, port] : sentinels) {
@@ -124,6 +127,7 @@ inline std::unique_ptr<Redis> make_sentinel_client(const std::string& master_nam
     ConnectionOptions conn_opts;
     conn_opts.connect_timeout = 200ms;
     conn_opts.socket_timeout = socket_timeout;
+    conn_opts.db = db;
     if (!password.empty())
         conn_opts.password = password;
 
@@ -169,18 +173,19 @@ public:
                     size_t pool_size = 10,
                     const std::string& password = "",
                     std::chrono::milliseconds socket_timeout = 500ms,
-                    std::chrono::milliseconds pool_wait_timeout = 500ms) {
+                    std::chrono::milliseconds pool_wait_timeout = 500ms,
+                    int db = 0) {
         if (initialized) {
             throw std::runtime_error("Cache already initialized");
         }
         try {
             const RedisAddress addr = parse_redis_url(connection_str);
-            redis_client =
-                make_standalone_client(addr.host, addr.port, pool_size, password, socket_timeout, pool_wait_timeout);
+            redis_client = make_standalone_client(
+                addr.host, addr.port, pool_size, password, socket_timeout, pool_wait_timeout, db);
             redis_client->ping();
             initialized = true;
             use_sentinel = false;
-            spdlog::info("Redis cache initialized (standalone: {}:{})", addr.host, addr.port);
+            spdlog::info("Redis cache initialized (standalone: {}:{}, db={})", addr.host, addr.port, db);
         } catch (const Error& e) {
             spdlog::error("Failed to initialize Redis cache: {}", e.what());
             throw std::runtime_error("Redis initialization failed: " + std::string(e.what()));
@@ -199,17 +204,18 @@ public:
                                   const std::string& password = "",
                                   const std::string& sentinel_password = "",
                                   std::chrono::milliseconds socket_timeout = 500ms,
-                                  std::chrono::milliseconds pool_wait_timeout = 500ms) {
+                                  std::chrono::milliseconds pool_wait_timeout = 500ms,
+                                  int db = 0) {
         if (initialized) {
             throw std::runtime_error("Cache already initialized");
         }
         try {
             redis_client = make_sentinel_client(
-                master_name, sentinels, pool_size, password, sentinel_password, socket_timeout, pool_wait_timeout);
+                master_name, sentinels, pool_size, password, sentinel_password, socket_timeout, pool_wait_timeout, db);
             redis_client->ping();
             initialized = true;
             use_sentinel = true;
-            spdlog::info("Redis cache initialized with Sentinel (master: {})", master_name);
+            spdlog::info("Redis cache initialized with Sentinel (master: {}, db={})", master_name, db);
         } catch (const Error& e) {
             spdlog::error("Failed to initialize Redis with Sentinel: {}", e.what());
             throw std::runtime_error("Redis Sentinel initialization failed: " + std::string(e.what()));
@@ -427,12 +433,13 @@ inline void initialize(const std::string& connection_str,
                        size_t pool_size = 10,
                        const std::string& password = "",
                        std::chrono::milliseconds socket_timeout = 500ms,
-                       std::chrono::milliseconds pool_wait_timeout = 500ms) {
+                       std::chrono::milliseconds pool_wait_timeout = 500ms,
+                       int db = 0) {
     if (global_cache != nullptr) {
         throw std::runtime_error("Cache already initialized");
     }
     global_cache = std::make_unique<CacheManager>();
-    global_cache->initialize(connection_str, pool_size, password, socket_timeout, pool_wait_timeout);
+    global_cache->initialize(connection_str, pool_size, password, socket_timeout, pool_wait_timeout, db);
 }
 
 inline void initialize_with_sentinel(const std::string& master_name,
@@ -441,13 +448,14 @@ inline void initialize_with_sentinel(const std::string& master_name,
                                      const std::string& password = "",
                                      const std::string& sentinel_password = "",
                                      std::chrono::milliseconds socket_timeout = 500ms,
-                                     std::chrono::milliseconds pool_wait_timeout = 500ms) {
+                                     std::chrono::milliseconds pool_wait_timeout = 500ms,
+                                     int db = 0) {
     if (global_cache != nullptr) {
         throw std::runtime_error("Cache already initialized");
     }
     global_cache = std::make_unique<CacheManager>();
     global_cache->initialize_with_sentinel(
-        master_name, sentinels, pool_size, password, sentinel_password, socket_timeout, pool_wait_timeout);
+        master_name, sentinels, pool_size, password, sentinel_password, socket_timeout, pool_wait_timeout, db);
 }
 
 inline CacheManager& get() {

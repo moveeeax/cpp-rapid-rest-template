@@ -49,7 +49,9 @@ public:
         if (!Validation::parse_body(req, body, callback))
             return;
         Validation::Errors errs;
-        Validation::require(errs, body, "name");
+        // require_string: a non-string "name" would reach get<std::string>()
+        // below and throw type_error.302 → bare 500 instead of a 400.
+        Validation::require_string(errs, body, "name");
         if (errs.any()) {
             callback(Validation::response_400(errs));
             return;

@@ -177,6 +177,10 @@ externalRedis:
   masterName: mymaster
   sentinelNodes: "redis-node-0.redis-headless.example.svc.cluster.local:26379,redis-node-1.redis-headless.example.svc.cluster.local:26379,redis-node-2.redis-headless.example.svc.cluster.local:26379"
   poolSize: 10
+  # Logical Redis DB index. 0 = chart default, safe when this Redis instance
+  # isn't shared with another app. MUST be set (and match the other release's
+  # value — api and worker share the queue) whenever it is shared.
+  db: 0
 
 # ---------------------------------------------------------------
 # Application configuration

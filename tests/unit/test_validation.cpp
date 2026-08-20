@@ -21,6 +21,95 @@ TEST(ValidationTest, RequireNullIsMissing) {
     EXPECT_EQ(errs.items()[0].code, "missing");
 }
 
+// ── require_string ──────────────────────────────────────────────────────────
+// require() only proves presence, so a wrong-typed field used to sail through
+// and blow up in the handler's body[f].get<std::string>() as nlohmann's
+// type_error.302 — a bare 500 (on unauthenticated paths too) instead of the
+// 400 envelope. These pin the type check itself.
+
+TEST(ValidationTest, RequireStringAcceptsString) {
+    V::Errors errs;
+    json body = {{"password", "hunter2hunter2"}};
+    EXPECT_TRUE(V::require_string(errs, body, "password"));
+    EXPECT_FALSE(errs.any());
+}
+
+TEST(ValidationTest, RequireStringRejectsNonString) {
+    V::Errors errs;
+    json body = {{"password", 123}};
+    EXPECT_FALSE(V::require_string(errs, body, "password"));
+    ASSERT_EQ(errs.items().size(), 1u);
+    EXPECT_EQ(errs.items()[0].field, "password");
+    EXPECT_EQ(errs.items()[0].code, "not_string");
+}
+
+TEST(ValidationTest, RequireStringRejectsStructuredValues) {
+    // An object or array is the other shape a hostile client sends to reach
+    // get<std::string>() — both must land as not_string, not as a 500.
+    for (const json& value : {json::object(), json::array({1, 2}), json(true)}) {
+        V::Errors errs;
+        json body = {{"email", value}};
+        EXPECT_FALSE(V::require_string(errs, body, "email")) << value.dump();
+        ASSERT_EQ(errs.items().size(), 1u) << value.dump();
+        EXPECT_EQ(errs.items()[0].code, "not_string") << value.dump();
+    }
+}
+
+TEST(ValidationTest, RequireStringReportsMissingOnceNotTwice) {
+    // Absent / null short-circuits on require(): one "missing", never a
+    // "missing" + "not_string" pair for the same field.
+    for (const json& body : {json::object(), json{{"password", nullptr}}}) {
+        V::Errors errs;
+        EXPECT_FALSE(V::require_string(errs, body, "password")) << body.dump();
+        ASSERT_EQ(errs.items().size(), 1u) << body.dump();
+        EXPECT_EQ(errs.items()[0].code, "missing") << body.dump();
+    }
+}
+
+TEST(ValidationTest, RequireStringAcceptsEmptyString) {
+    // Presence and type only — length is a separate validator's job.
+    V::Errors errs;
+    json body = {{"name", ""}};
+    EXPECT_TRUE(V::require_string(errs, body, "name"));
+    EXPECT_FALSE(errs.any());
+}
+
+// ── boolean ─────────────────────────────────────────────────────────────────
+// body.value(f, false) throws type_error.302 on a non-boolean, so every
+// optional flag needs this gate before it is read.
+
+TEST(ValidationTest, BooleanAcceptsBothLiterals) {
+    for (bool v : {true, false}) {
+        V::Errors errs;
+        json body = {{"is_default", v}};
+        V::boolean(errs, body, "is_default");
+        EXPECT_FALSE(errs.any()) << v;
+    }
+}
+
+TEST(ValidationTest, BooleanRejectsNonBoolean) {
+    // The string "true" and the number 1 are the two values clients actually
+    // send instead of a JSON boolean.
+    for (const json& value : {json("true"), json(1), json::array(), json::object()}) {
+        V::Errors errs;
+        json body = {{"is_default", value}};
+        V::boolean(errs, body, "is_default");
+        ASSERT_EQ(errs.items().size(), 1u) << value.dump();
+        EXPECT_EQ(errs.items()[0].field, "is_default") << value.dump();
+        EXPECT_EQ(errs.items()[0].code, "not_boolean") << value.dump();
+    }
+}
+
+TEST(ValidationTest, BooleanIsNoOpForMissingAndNull) {
+    // Absent == explicit null == "leave it at the default" for the callers
+    // (AdminController's is_default), so neither may raise.
+    for (const json& body : {json::object(), json{{"is_default", nullptr}}}) {
+        V::Errors errs;
+        V::boolean(errs, body, "is_default");
+        EXPECT_FALSE(errs.any()) << body.dump();
+    }
+}
+
 TEST(ValidationTest, StringLengthInRange) {
     V::Errors errs;
     json body = {{"name", "abc"}};
