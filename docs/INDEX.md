@@ -76,6 +76,7 @@ question instead of grepping the tree.
 | [`../.github/workflows/ci.yml`](../.github/workflows/ci.yml) | GitHub Actions CI: build + test + format + secret-scan |
 | [`CI-PROFILES.md`](CI-PROFILES.md) | Hosted vs self-hosted runner profiles: serialize-vs-parallel, cache layers, honest timeouts, retry policy, why arm64/QEMU is out |
 | [`../.github/workflows/release.yml`](../.github/workflows/release.yml) | Tag-driven multi-arch image build + draft release |
+| [`RENDER-GATE.md`](RENDER-GATE.md) | Opt-in rendered-artifact gate for forks that render documents (Typst/LaTeX/HTML→PDF): contract, provenance rule, selftest, example CI job — not wired into this repo's CI |
 | [`RUNBOOK.md`](RUNBOOK.md) | Operator runbook: what to do when an alert fires (each alert's `runbook_url` anchors here) |
 | [`SLO.md`](SLO.md) | SLOs + alert thresholds — the rationale behind the Prometheus rules |
 | [`../helm/cpp-api/`](../helm/cpp-api/) | API Helm chart |
@@ -100,6 +101,9 @@ question instead of grepping the tree.
 | `check-version-sync.sh` | Verify `project(VERSION …)` in CMakeLists.txt matches the newest released CHANGELOG heading |
 | `check-frontend-nginx-sync.sh` | Verify `frontend/nginx.conf` and the helm cpp-frontend ConfigMap agree on the proxied backend routes |
 | `check-helm-render.sh` | Render the cpp-env umbrella with CI values and assert deploy-path invariants (ports, hosts, empty credential defaults) |
+| `check-artifact.py` | Content + leaked-template-syntax gate over ONE rendered artifact's extracted text (opt-in, for document-rendering forks — see docs/RENDER-GATE.md) |
+| `render-artifacts.sh` | Loop for the opt-in artifact gate: render every `templates/render/*/fixtures/*.json` via `RENDER_CMD`/`EXTRACT_CMD`, then gate with `check-artifact.py`; zero fixtures = failure |
+| `check-artifact-selftest.sh` | Mandatory selftest for the artifact gate: healthy example (incl. hostile data fixture) must PASS, two counted mutations must be caught and named |
 | `prod-check.sh` | Pre-deploy assertions on a production config (auth, secrets, TLS, fail-closed) |
 | `lint-openapi.sh` | Spectral lint with project ruleset |
 | `make-jwt.sh` | Mint a dev HS256 JWT (no Python/Node deps) |
