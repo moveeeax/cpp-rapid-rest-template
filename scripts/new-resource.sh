@@ -114,6 +114,7 @@ if [[ $OWNED -eq 1 ]]; then
     CTRL_CREATE="repo.create(body[\"name\"].get<std::string>(), owner)"
     CTRL_REMOVE="repo.remove(id, owner)"
     TEST_CASE="ListRequiresOwner"
+    TEST_REQUEST="TestHelpers::make_request(Get)"
     TEST_ASSERT="    // Owner-scoped: an unauthenticated request has no principal, so the guard
     // rejects it with 401 — the proof the per-user gate is wired (no IDOR via a
     // missing identity). Authenticate via TestHelpers to exercise the 200 path.
@@ -142,7 +143,9 @@ else
     CTRL_CREATE="repo.create(body[\"name\"].get<std::string>())"
     CTRL_REMOVE="repo.remove(id)"
     TEST_CASE="ListReturnsEnvelope"
-    TEST_ASSERT="    // With AUTH_MODE=none the admin guard is a no-op, so this reaches the handler.
+    TEST_REQUEST="TestHelpers::authed(TestFixtures::admin_principal())"
+    TEST_ASSERT="    // CoreBackedTest runs auth.mode=jwt (see test_helpers.hpp), so the admin
+    // guard is live — authenticate as admin to reach the handler.
     EXPECT_EQ(resp->statusCode(), k200OK);
     auto body = json::parse(std::string(resp->body()));
     EXPECT_TRUE(body.contains(\"data\"));
@@ -470,6 +473,7 @@ if [[ ! -e "$TEST_FILE" ]]; then
 #include <nlohmann/json.hpp>
 
 #include "api/${CONTROLLER}.hpp"
+#include "test_fixtures.hpp"
 #include "test_helpers.hpp"
 
 using json = nlohmann::json;
@@ -489,7 +493,7 @@ protected:
 
 TEST_F(${ENTITY}sFlowTest, ${TEST_CASE}) {
     HttpResponsePtr resp;
-    controller.list${ENTITY}s(TestHelpers::make_request(Get), [&](const HttpResponsePtr& r) { resp = r; });
+    controller.list${ENTITY}s(${TEST_REQUEST}, [&](const HttpResponsePtr& r) { resp = r; });
     ASSERT_NE(resp, nullptr);
 ${TEST_ASSERT}
 }

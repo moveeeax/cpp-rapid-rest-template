@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 #include "api/GadgetsController.hpp"
+#include "test_fixtures.hpp"
 #include "test_helpers.hpp"
 
 using json = nlohmann::json;
@@ -32,9 +33,11 @@ protected:
 
 TEST_F(GadgetsFlowTest, ListReturnsEnvelope) {
     HttpResponsePtr resp;
-    controller.listGadgets(TestHelpers::make_request(Get), [&](const HttpResponsePtr& r) { resp = r; });
+    controller.listGadgets(TestHelpers::authed(TestFixtures::admin_principal()),
+                           [&](const HttpResponsePtr& r) { resp = r; });
     ASSERT_NE(resp, nullptr);
-    // With AUTH_MODE=none the admin guard is a no-op, so this reaches the handler.
+    // CoreBackedTest runs auth.mode=jwt (see test_helpers.hpp), so the admin
+    // guard is live — authenticate as admin to reach the handler.
     EXPECT_EQ(resp->statusCode(), k200OK);
     auto body = json::parse(std::string(resp->body()));
     EXPECT_TRUE(body.contains("data"));
