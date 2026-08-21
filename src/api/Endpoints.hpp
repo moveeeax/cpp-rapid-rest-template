@@ -78,10 +78,6 @@ inline const std::vector<EndpointInfo>& get_endpoints() {
         {"GET", "/api/v1/admin/uploads", "Admin: list uploaded images"},
         {"DELETE", "/api/v1/admin/uploads/{name}", "Admin: delete an uploaded image"},
         {"GET", "/uploads/{key}", "Serve an uploaded image (public; local storage backend only)"},
-        {"GET", "/api/v1/gadgets", "List gadgets"},
-        {"POST", "/api/v1/gadgets", "Create gadget"},
-        {"GET", "/api/v1/gadgets/{id}", "Get gadget"},
-        {"DELETE", "/api/v1/gadgets/{id}", "Delete gadget"},
     };
     return endpoints;
 }
