@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief Application entry point.
+ * @brief Application entry point
  * @details Parses CLI/ops flags, then either runs a one-shot mode
  *          (migrations, config dump, admin bootstrap, …) or boots the
  *          Drogon HTTP server. Each mode lives in its own function; main()
