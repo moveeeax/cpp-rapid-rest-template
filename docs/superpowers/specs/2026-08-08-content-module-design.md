@@ -1,6 +1,8 @@
 # Content module — posts, markdown delivery, sitemap, uploads (backport)
 
 **Date:** 2026-08-08
+**Status:** executed — PR #11, released in 1.5.0 (gap fixes in 1.5.1, PR #13);
+see the status note in `docs/superpowers/plans/2026-08-08-content-module.md`.
 **Source:** backport from the production fork `moveeeax/tarassov.me` (its code
 grew out of this template and is idiomatic to it), trimmed by owner decisions.
 

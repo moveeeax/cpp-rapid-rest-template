@@ -1,6 +1,8 @@
 # Wave 0 — repo hygiene & agent-readiness
 
 **Date:** 2026-08-06
+**Status:** executed — PRs #1, #2, #3/#6, #5 + `gh` metadata/releases; see
+the status note in `docs/superpowers/plans/2026-08-06-wave-0-hygiene.md`.
 **Source:** architecture-council session (5 perspectives + adversarial critique);
 this wave is the set of proposals the critique rated *strong*, all small (S),
 all low-risk, all executable by agents.

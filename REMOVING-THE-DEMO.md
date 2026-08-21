@@ -14,18 +14,19 @@ what is reference-only (safe to delete) and what is the actual application (keep
 rm -rf _reference docs/PATTERNS-FROM-FLASK-BASE.md
 ```
 
-Both do the same thing; `--no-demo` also scrubs the now-dangling doc links.
+Both do the same thing; `--no-demo` also scrubs the now-dangling doc links
+and strips the README "Live demo" block (demo URL + public demo credentials).
 
 ## What is reference-only (safe to delete)
 
 | Path | What it is | Why it's removable |
 | --- | --- | --- |
-| `_reference/flask-base/` | ~21 MB of the upstream Python **flask-base** source. | The C++ app mirrors its patterns (auth flows, permission bitmask, email tokens); the source is here only so you can diff behaviour. Nothing builds or imports it. |
+| `_reference/flask-base/` | A gitignored, depth-1 local clone (~21 MB) of the upstream Python **flask-base** source — never committed, so it exists only if you fetched it. | The C++ app mirrors its patterns (auth flows, permission bitmask, email tokens); the clone is here only so you can diff behaviour. Nothing builds or imports it. |
 | `docs/PATTERNS-FROM-FLASK-BASE.md` | The mapping doc: "flask-base did X → here it's Y". | Pure narrative. No code references it at runtime. |
 
 Deleting these does **not** touch any C++ target, migration, test, Helm chart, or
 CI job — `init-project.sh` already excludes `_reference/` from its renaming pass,
-and `--no-demo` only removes the two paths above.
+and `--no-demo` only removes the two paths above plus the README "Live demo" block.
 
 ## What is NOT a demo — keep it
 
@@ -42,7 +43,8 @@ If you want a *truly* minimal start, delete your own unused **feature** code
 (controllers/repositories you scaffold and abandon) — but the auth/User/Role/Audit
 core is the point of the template.
 
-> Note: the "demo" Docker images and the `env-stage` deployment referenced in the
-> CHANGELOG are *deployment* showcases (published images, a staging namespace),
+> Note: the "demo" Docker images referenced in the CHANGELOG and the `env-stage`
+> deployment referenced in the `helm/cpp-env` values are *deployment* showcases
+> (published images, a staging namespace),
 > independent of the source tree. Removing the reference material above has no
 > effect on them.

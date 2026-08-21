@@ -11,14 +11,25 @@ here was learned the expensive way on downstream forks of this template.
   and `tsan` each get their own VM, so parallelism costs nothing; each pulls
   builder layers from the gha/GHCR caches independently. Serializing them on
   hosted runners only stretches the wall clock.
-- **Two cache layers.** `cache-from` lists `type=gha` plus
+- **Three cache layers.** `cache-from` lists `type=gha` plus
   `ghcr.io/<repo>/builder:cache`. The gha cache is evicted aggressively
   (7 days / 10 GB); the GHCR layer survives, EXCEPT after a vcpkg baseline
-  bump, when the dependency world legitimately rebuilds (~35 min).
+  bump, when the dependency world legitimately rebuilds (~35 min). On top of
+  the image-layer caches, compilation itself goes through **sccache**
+  (v0.17.0, pinned in `docker/Dockerfile`) backed by the GitHub Actions
+  cache: the Actions credentials (`ACTIONS_RESULTS_URL` /
+  `ACTIONS_RUNTIME_TOKEN`, exposed by `crazy-max/ghaction-github-runtime`)
+  reach the Docker build as BuildKit **secrets** — never ARGs — so layer
+  cache keys and image history stay credential-free, and
+  `ACTIONS_CACHE_SERVICE_V2=on` is mandatory (without it sccache's ghac
+  backend silently caches nothing). With 100% sccache hits the builder-stage
+  compile takes ~24 s; warm wall clocks are roughly build-and-test ~12 min,
+  clang-tidy ~4, sanitizers ~4, tsan ~4, runtime-smoke ~2.5.
 - **Timeouts must let one cold build finish.** A job killed by its timeout
   BEFORE it exports the gha cache leaves the next run just as cold — the
   short timeout then reproduces the slow run it was guarding against. That is
-  why the heavy jobs carry `timeout-minutes: 90`, not 60.
+  why the heavy compile jobs (build-and-test, sanitizers, tsan) carry
+  `timeout-minutes: 90`, not 60 (clang-tidy gets 45).
 
 ## Self-hosted / weak-runner profile
 

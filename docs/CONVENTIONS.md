@@ -1,8 +1,9 @@
 # Conventions — how to add a domain entity
 
 This is the canonical, copy-this checklist for adding a new resource end to
-end. It points at the real files that already implement `users` / `roles`, so
-you extend an existing pattern instead of guessing which controller to mimic.
+end. It points at the real files that already implement `users` / `roles` /
+`posts`, so you extend an existing pattern instead of guessing which
+controller to mimic.
 
 > Fast path: `./scripts/new-resource.sh Product` scaffolds the backend stubs
 > (domain + repository + CRUD controller + endpoint registry + openapi block +
@@ -18,9 +19,11 @@ order below and run the drift checkers.
 ## 1. Migration — `migrations/NNN_<slug>.sql`
 
 `./scripts/new-migration.sh add_products` writes a numbered, idempotent
-skeleton. Inside: `CREATE TABLE IF NOT EXISTS`, indexes, and the
-`updated_at` trigger (copy the `touch_updated_at` block from
-`migrations/001_users_and_roles.sql`). Applied at boot in numeric order by
+skeleton. Inside: `CREATE TABLE IF NOT EXISTS`, indexes, and an
+`updated_at` trigger attached to the shared `touch_updated_at()` function
+from `migrations/000_updated_at_trigger.sql` (`CREATE TRIGGER … EXECUTE
+FUNCTION touch_updated_at()` — don't duplicate the function per table; see
+`006_add_posts.sql`). Applied at boot in numeric order by
 `MigrationRunner` under an advisory lock (safe with multiple replicas).
 
 ## 2. Domain DTO — `src/domain/<Entity>.hpp`
@@ -56,7 +59,9 @@ hand-written variant because it joins roles):
   `pqxx::work&`). Use `execute_read_primary` for read-after-write.
 - Wrap UNIQUE/FK-tripping writes in `detail::translate_sql(...)`
   (`repositories/SqlErrors.hpp`) to turn a SQLSTATE into your typed exception —
-  otherwise a constraint violation surfaces as a raw 500.
+  otherwise a constraint violation surfaces as a raw 500. For the ubiquitous
+  single-SQLSTATE case use the `detail::throw_on` factory as the translator:
+  `detail::throw_on<DuplicateFoo>("23505")` (see `UserRepository::create`).
 - **Per-user resources:** add `static constexpr const char* kOwnerColumn =
   "owner_id";` to unlock CrudBase's `find_owned/list_owned/count_owned`, and
   gate the controller with `API_REQUIRE_OWNER`. Scaffold it with
@@ -74,18 +79,24 @@ Per handler:
 1. First line: a guard from `Guards.hpp` —
    `API_REQUIRE_ADMIN(req, callback)` or `API_REQUIRE_PRINCIPAL(req, callback, p)`.
    Every mutating endpoint needs one (under `AUTH_MODE=none` it's a no-op, so
-   it never gets in the way during dev — but it's there for prod).
-2. Parse + validate: `Validation::parse_body(req, body, callback)` then
+   it never gets in the way during dev — but it's there for prod). Handlers of
+   a toggleable feature module gate first with
+   `if (!require_content_enabled(callback)) return;` (see `PostsController`;
+   `new-module.sh` scaffolds the flag).
+2. UUID path params: `if (!require_valid_uuid(id, callback)) return;`
+   (`Guards.hpp`) — don't hand-roll the `is_valid_uuid` + 400 pair.
+3. Parse + validate: `Validation::parse_body(req, body, callback)` then
    `Validation::require/email/string_length`, accumulate into
    `Validation::Errors`, bail with `Validation::response_400(errs)`.
-3. Repository call inside `with_repo_errors(callback, "op", [&]{ … })`
+4. Repository call inside `with_repo_errors(callback, "op", [&]{ … })`
    (`HandlerSupport.hpp`) — it maps `Duplicate*`→409, `*NotFound`→404,
    anything else→500-with-log. Don't hand-roll the catch ladder.
-4. List endpoints: `parse_page_params(req, default, max)` →
-   `{data, total, limit, offset}` (see `AdminController::listUsers`).
-5. Success: `Response::ok(...)` / `Response::created(...)` — never build the
+5. List endpoints: `parse_page_params(req, default, max)` →
+   `Response::paginated(to_json_array(items), total, page.limit, page.offset)`
+   (see `AdminController::listUsers`).
+6. Success: `Response::ok(...)` / `Response::created(...)` — never build the
    `HttpResponse` by hand.
-6. **`callback(...)` exactly once on every path**, including early returns and
+7. **`callback(...)` exactly once on every path**, including early returns and
    the guard expansions.
 
 ## 5. Route registry + OpenAPI
@@ -138,9 +149,9 @@ These don't fall out of reading the code; they were learned the hard way.
 2. **`Api::get_endpoints()` (`src/api/Endpoints.hpp`) is the single source of truth for routes.** After an `ADD_METHOD_TO(...)`, add the matching line there, or `scripts/check-openapi-drift.sh` fails CI and `--print-routes` won't show it. Controllers include `api/Guards.hpp` + `api/RequestUtils.hpp` but NOT `api/Api.hpp` (cycle).
 3. **JSON: nlohmann::json only, never jsoncpp.** Drogon uses jsoncpp internally, but project code is all nlohmann. Parse with `json::parse(req->body())`, respond with `data.dump()` + `CT_APPLICATION_JSON`. **Never call `req->getJsonObject()`.**
 4. **`AUTH_MODE=none` by default** — every endpoint public. On any mutating endpoint add a guard from `api/Guards.hpp` (`API_REQUIRE_ADMIN` / `API_REQUIRE_PRINCIPAL`) or `Security::Auth::require_role(...)`, or document why it's public.
-5. **`Core::initialize()` has a strict init order:** Config → Observability → Database → Migrations → Cache → Messaging → Tasks → Security → Jobs → Mailer; shutdown is the reverse. Don't reorder (Cache uses Observability metrics; Database depends on Config).
+5. **`Core::initialize()` has a strict init order:** Config → Observability → Database → Migrations → Cache → Storage → Messaging → Tasks → Security → Jobs → Mailer; shutdown is the reverse. Don't reorder (Cache uses Observability metrics; Database depends on Config).
 6. **`req->attributes()->get<T>(key)` on a miss returns a default-constructed `T`** (older Drogon threw `std::out_of_range` — both exist). Never rely on the throw: `find(key)` first, then `get<T>` — see `Security::Auth::principal_of`. An empty principal reaching SQL as a uuid has crashed a handler before.
-7. **Every Redis call is fail-open.** `CacheManager` methods swallow `sw::redis::Error` and log a warn; wrap direct `get_client()` calls in try/catch. See `docs/adr/`.
+7. **Every Redis call is fail-open** — except counters. `CacheManager` methods swallow `sw::redis::Error` (via the private `guarded_` wrapper) and log a warn; but `incr`/`decr` log and RETHROW (a counter silently stuck at a default would corrupt rate accounting). Wrap direct `get_client()` calls in try/catch. See `docs/adr/`.
 8. **Drogon's log level is hardcoded in `main.cpp` (`Logger::kInfo`).** `LOG_LEVEL` only affects spdlog. For Drogon debug, edit `setLogLevel` in `main.cpp`.
 9. **`callback(...)` exactly once on every path** — including exceptions and early returns — or the client hangs until timeout.
 10. **Tests don't call controller methods directly with a fake `req`** — use `tests/test_helpers.hpp` (`make_request(...)`).
@@ -169,7 +180,9 @@ The scaffolding scripts are the entry points:
 
 | Want to… | Look at / run |
 |---|---|
+| Add a full CRUD resource | `./scripts/new-resource.sh` |
 | Add a backend endpoint | `./scripts/new-endpoint.sh` |
+| Add a feature-module flag | `./scripts/new-module.sh` |
 | Add a migration | `./scripts/new-migration.sh` |
 | Add a frontend page | `./scripts/new-react-page.sh` |
 | Bring up the whole stack | `make up && make frontend-up` |

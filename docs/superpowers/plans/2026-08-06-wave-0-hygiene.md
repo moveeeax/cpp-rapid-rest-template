@@ -8,6 +8,12 @@
 
 **Tech Stack:** gh CLI, GitHub Actions, Renovate, CMake, Docker/compose, gcovr.
 
+**Status — 2026-08-21: EXECUTED.** All tasks done. Task 1 applied via `gh`
+(repo is a template, topics/homepage/description set, releases published —
+verified 2026-08-21); PRs: CLAUDE.md + doc-drift #1, Renovate
+risk-inversion #2, GHCR builder cache + TSAN job #3 (e2e race fix #6),
+coverage ratchet to 54% #5 (floor still 54 in `Makefile` `COVERAGE_MIN`).
+
 ## Global Constraints
 
 - Plain conventional commit messages. **No AI-attribution trailers** (user's global rule).

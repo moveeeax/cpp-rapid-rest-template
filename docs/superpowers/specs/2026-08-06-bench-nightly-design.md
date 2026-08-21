@@ -1,6 +1,8 @@
 # Wave 1.1 — nightly benchmarks with a public trend
 
 **Date:** 2026-08-06
+**Status:** executed — PRs #8/#9; see the status note in
+`docs/superpowers/plans/2026-08-06-bench-nightly.md`.
 **Context:** Wave 1 kickoff. The council deferred "nightly bench gate" from
 Wave 0; the owner picked benchmarks as the first Wave-1 sub-project (order:
 benchmarks → launch campaign → failover/chaos → forker DX). Measurement venue

@@ -10,6 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-08-content-module-design.md`
 
+**Status — 2026-08-21: EXECUTED.** Landed on master as PR #11, released in
+1.5.0: posts CRUD + raw-Markdown delivery at `/posts/{slug}`, `/sitemap.xml`,
+admin uploads, all gated by `content.enabled` (default off). Live-found gaps
+fixed in 1.5.1 (PR #13: frontend proxying, chart storage wiring, multipart
+uploads).
+
 ## Global Constraints
 
 - Branch: `feat/content-module` (exists, carries the spec). Plain conventional commits, NO AI-attribution trailers (owner's standing rule).

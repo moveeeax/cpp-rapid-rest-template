@@ -1,6 +1,8 @@
 # Frontend redesign — "refined dev-tool, dark-first, indigo"
 
-Date: 2026-06-25 · Status: approved (direction + accent)
+Date: 2026-06-25 · Status: approved (direction + accent) · Update 2026-08-21:
+implemented — landed as b92bbf2, released in 1.3.3 (tokens live in
+`frontend/src/index.css`, `darkMode: ['class']` in `tailwind.config.js`)
 
 ## Problem
 

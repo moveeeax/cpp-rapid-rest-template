@@ -16,7 +16,7 @@ what we deliberately changed**. Edit it whenever the divergence grows.
 | Account flow (12 routes) | `app/account/views.py` | Register / login / logout / confirm-email / reset-password / change-email / change-password / manage-profile / unconfirmed / join-from-invite |
 | Admin flow (10 routes) | `app/admin/views.py` | Dashboard / new-user / invite-user / list users / user info / change role / change email / delete |
 | Domain models | `app/models/user.py` | `User` (id, email, first/last name, password_hash, confirmed, role_id) + `Role` (name, permissions bitmask, default flag) |
-| RBAC | `app/models/user.py` `Permission`, `User.can()`, `app/decorators.py` `admin_required` | `Permission::GENERAL = 0x01`, `Permission::ADMINISTER = 0xff`; `User::can(perm) = (role.permissions & perm) == perm` |
+| RBAC | `app/models/user.py` `Permission`, `User.can()`, `app/decorators.py` `admin_required` | `Permission::kGeneral = 0x01`, `Permission::kAdminister = 0x40000000` (dedicated sentinel bit — see below); `User::can(perm) = (role.permissions & perm) == perm` |
 | Token-based flows | `User.generate_*_token` + `confirm_account/change_email/reset_password` (itsdangerous) | HMAC-signed timed tokens for confirm / reset / change-email |
 | Email pipeline | `app/email.py` + `app/templates/account/email/` | `.html` + `.txt` per template, rendered with Jinja-like engine, sent over SMTP |
 | Bootstrap CLI | `manage.py` (`setup_general`, `add_fake_data`, `recreate_db`) | One-shot `--setup-dev` / `--seed-fake N` / `--create-admin EMAIL` flags on the binary |
@@ -40,7 +40,7 @@ at it). We use:
 - **Access JWT** — short-lived (≤15 min), `__Host-access` HttpOnly cookie,
   `SameSite=Lax`, `Secure` in prod.
 - **Refresh JWT** — longer-lived (7d), `__Host-refresh` HttpOnly cookie,
-  rotated on every `/api/auth/refresh`. Refresh-token-id stored in Redis
+  rotated on every `/api/v1/auth/refresh`. Refresh-token-id stored in Redis
   for revocation on logout.
 
 Why: stateless API, easier horizontal scaling; HttpOnly + SameSite removes
@@ -73,7 +73,7 @@ mirrors flask-base; the visual primitives are different.
 If you'd rather have the original Semantic UI look, `semantic-ui-react`
 is a drop-in: keep the same routes/pages, swap the `<Button>` imports.
 
-### 7. `itsdangerous` → libsodium-signed timed tokens
+### 7. `itsdangerous` → HMAC-signed timed tokens (OpenSSL)
 flask-base's confirm/reset/change-email tokens come from
 `itsdangerous.TimedJSONWebSignatureSerializer` (HMAC-SHA256 + JSON
 payload + expiry). We do the same primitive in C++:
@@ -86,10 +86,15 @@ payload + expiry). We do the same primitive in C++:
 This is _not_ a JWT — JWTs are used for session tokens. These are
 short-lived single-purpose link tokens, not session credentials.
 
-### 8. `Permission.ADMINISTER = 0xff` → identical
-We keep flask-base's bitmask exactly so a future "moderator" /
-"editor" role can be added by carving out bits without breaking the
-contract.
+### 8. `Permission.ADMINISTER = 0xff` → dedicated sentinel bit `0x40000000`
+We keep flask-base's bitmask idea (carve out bits for future "moderator" /
+"editor" roles) but NOT its `0xff` admin value: with `0xff`, a role that
+merely accumulated the eight low feature bits would accidentally satisfy
+`is_admin` — a privilege-escalation footgun. `Permission::kAdminister` is
+bit 30 (`0x40000000`), reserved for admin and never used by a feature
+permission; feature bits are carved from the low range (`0x02` is already
+`kAuditRead`). Existing admin rows seeded as `0xff` were migrated in
+`migrations/004_admin_permission_sentinel.sql`.
 
 ## What we did NOT lift
 

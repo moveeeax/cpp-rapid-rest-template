@@ -18,7 +18,7 @@ question instead of grepping the tree.
 
 | File | What's there |
 |---|---|
-| [`EXAMPLES.md`](EXAMPLES.md) | Full Users CRUD walkthrough: migration → DTO → repository → controller → tests |
+| [`EXAMPLES.md`](EXAMPLES.md) | End-to-end CRUD walkthrough for adding your own resource: migration → DTO → repository → controller → tests |
 | [`CONVENTIONS.md`](CONVENTIONS.md) | Canonical "add a domain entity" checklist (what `new-resource.sh` follows) + what NOT to abstract |
 | [`CONFIG.md`](CONFIG.md) | Single table mapping every JSON key ↔ env var ↔ default |
 | [`TESTING.md`](TESTING.md) | Test buckets (unit/integration/api/e2e), what's covered vs not, coverage, the disabled-race note |
@@ -27,6 +27,7 @@ question instead of grepping the tree.
 | [`PATTERNS-FROM-FLASK-BASE.md`](PATTERNS-FROM-FLASK-BASE.md) | Authoritative list of patterns lifted from flask-base (file-level mapping included) |
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 spec for every registered route. `scripts/check-openapi-drift.sh` keeps it honest; `frontend/npm run gen:api` consumes it for typed client |
 | [`Doxyfile`](Doxyfile) | `make docs` configuration; output goes to `docs/html/` (gitignored) |
+| [`superpowers/`](superpowers/) | Archived design specs + implementation plans for past feature waves (content module, bench nightly, hygiene/hardening waves) |
 
 ## Frontend
 
@@ -47,6 +48,8 @@ question instead of grepping the tree.
 | [`adr/0002-nlohmann-json.md`](adr/0002-nlohmann-json.md) | nlohmann::json end-to-end (Drogon's jsoncpp is internal-only) |
 | [`adr/0003-header-only-modules.md`](adr/0003-header-only-modules.md) | All `src/` modules are `.hpp`; only `main.cpp`/`worker_main.cpp` are TUs |
 | [`adr/0004-global-singletons.md`](adr/0004-global-singletons.md) | Module init/get/shutdown singleton pattern + ordering rationale |
+| [`adr/0005-spa-split.md`](adr/0005-spa-split.md) | Frontend is a separate React SPA (not SSR), deployable on its own |
+| [`adr/0006-api-versioning.md`](adr/0006-api-versioning.md) | URL-path `/api/v1` versioning with additive-only evolution (probe routes stay unversioned) |
 | [`adr/README.md`](adr/README.md) | ADR conventions + how to add a new one |
 
 ## Migrations
@@ -73,8 +76,12 @@ question instead of grepping the tree.
 | [`../.github/workflows/ci.yml`](../.github/workflows/ci.yml) | GitHub Actions CI: build + test + format + secret-scan |
 | [`CI-PROFILES.md`](CI-PROFILES.md) | Hosted vs self-hosted runner profiles: serialize-vs-parallel, cache layers, honest timeouts, retry policy, why arm64/QEMU is out |
 | [`../.github/workflows/release.yml`](../.github/workflows/release.yml) | Tag-driven multi-arch image build + draft release |
+| [`RUNBOOK.md`](RUNBOOK.md) | Operator runbook: what to do when an alert fires (each alert's `runbook_url` anchors here) |
+| [`SLO.md`](SLO.md) | SLOs + alert thresholds — the rationale behind the Prometheus rules |
 | [`../helm/cpp-api/`](../helm/cpp-api/) | API Helm chart |
 | [`../helm/cpp-worker/`](../helm/cpp-worker/) | Worker Helm chart |
+| [`../helm/cpp-frontend/`](../helm/cpp-frontend/) | Frontend (nginx SPA) Helm chart |
+| [`../helm/cpp-env/`](../helm/cpp-env/) | Umbrella chart — full environment (api + worker + frontend), rendered by `make helm-validate` |
 
 ## Scripts (`scripts/`)
 
@@ -84,14 +91,20 @@ question instead of grepping the tree.
 | `new-resource.sh` | Scaffold a FULL CRUD resource (domain + repository + controller + registry + openapi + test) per docs/CONVENTIONS.md |
 | `new-endpoint.sh` | Scaffold a single controller + registry row + optional test + optional OpenAPI patch |
 | `new-job.sh` | Scaffold a background-job handler that self-registers with the dispatcher (one `#include` to wire into the worker) |
+| `new-module.sh` | Scaffold a feature-module master switch (config flag + `Core::<name>_enabled()` + compose/helm/docs wiring), following the content module's on/off pattern |
 | `new-migration.sh` | Generate the next `NNN_<slug>.sql` |
 | `new-react-page.sh` | Scaffold a frontend admin page (hook + query keys + route) |
 | `check-openapi-drift.sh` | Verify `Api::get_endpoints()` (src/api/Endpoints.hpp) ↔ `docs/openapi.yaml` (method, path) |
 | `check-routes-registered.sh` | Verify every controller ADD_METHOD_TO route is in `Api::get_endpoints()` (symmetric to the OpenAPI drift check) |
 | `check-test-buckets.sh` | Verify test suites sit in the right bucket — classified by DIRECTORY, fails on a suite-name clash across unit/integration |
+| `check-version-sync.sh` | Verify `project(VERSION …)` in CMakeLists.txt matches the newest released CHANGELOG heading |
+| `check-frontend-nginx-sync.sh` | Verify `frontend/nginx.conf` and the helm cpp-frontend ConfigMap agree on the proxied backend routes |
+| `check-helm-render.sh` | Render the cpp-env umbrella with CI values and assert deploy-path invariants (ports, hosts, empty credential defaults) |
 | `prod-check.sh` | Pre-deploy assertions on a production config (auth, secrets, TLS, fail-closed) |
 | `lint-openapi.sh` | Spectral lint with project ruleset |
 | `make-jwt.sh` | Mint a dev HS256 JWT (no Python/Node deps) |
 | `smoke.sh` | curl through critical endpoints (health, traceparent, validation, metrics) |
 | `bench.sh` | wrk benchmark with config presets |
+| `bench-ci.sh` | CI/nightly benchmark orchestrator — emits the JSON github-action-benchmark reads (`wrk2bench.sh` converts wrk output; `bench-incremental.sh` measures warm rebuild times) |
+| `deploy-demo.sh` | Deploy / update the public demo environment (cpp-env umbrella) |
 | `env-check.sh` | Report unset `${VAR}` placeholders in config without defaults |

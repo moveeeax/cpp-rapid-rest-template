@@ -62,8 +62,10 @@ gates by construction. Hand-rolled versions usually don't.
 6. `make helm-lint` — only if `helm/` was touched
 7. `make ci-local` — full local reproduction of CI
 
-CI additionally runs clang-tidy, ASan+UBSan (+TSAN), gitleaks, Trivy,
-helm-render and the OpenAPI-drift gate.
+CI additionally runs clang-tidy, ASan+UBSan (+TSAN), gitleaks, helm-render
+and the OpenAPI-drift gate; C++ compiles in CI go through sccache backed by
+the Actions cache. Trivy scans images in the release pipeline
+(`.github/workflows/release.yml`), not in per-PR CI.
 
 ## Don'ts
 

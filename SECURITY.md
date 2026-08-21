@@ -66,7 +66,7 @@ will return 503s.
 
 Before shipping this template to production:
 
-- [ ] `auth.mode=jwt` with a non-default `JWT_SECRET` (or RS256 public key).
+- [ ] `auth.mode=jwt` with a strong, non-default `JWT_SECRET` (HS256, ≥ 32 chars — enforced at startup).
 - [ ] `rate_limit.enabled=true`.
 - [ ] `idempotency.enabled=true` for non-idempotent endpoints.
 - [ ] Secrets sourced from External Secrets / Vault, not inline in values.yaml.

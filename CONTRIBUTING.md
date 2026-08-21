@@ -36,7 +36,7 @@ pre-commit run --all-files
 2. Make focused, reviewable commits — ideally one per logical change.
 3. Run `make test` locally before pushing (or `make test-quick` for the
    fast TDD loop against an already-built image).
-4. Open an MR; CI will run build, tests, sanitizers, and linters.
+4. Open a PR; CI will run build, tests, sanitizers, and linters.
 5. Wait for required reviewers (see `CODEOWNERS`).
 
 ## Commit messages
@@ -60,7 +60,7 @@ Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`,
 - `clang-format` (`.clang-format` in repo) is enforced by CI — run locally
   before pushing.
 - `clang-tidy` config in `.clang-tidy` — new code should not regress the lint
-  baseline (see CI `lint:clang-tidy`).
+  baseline (see the `clang-tidy` CI job).
 - Prefer `std::` containers and smart pointers; raw `new`/`delete` is a red
   flag that needs a justification comment.
 - Thread-safety: document which entities are thread-safe and which aren't.
@@ -69,7 +69,7 @@ Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`,
 
 - Every new module in `src/` gets a `tests/unit/test_<module>.cpp`.
 - Integration tests (need Postgres/Redis) go in `tests/integration/` and
-  skip themselves when `full_init` is false.
+  skip themselves (`GTEST_SKIP`) when Postgres/Redis aren't reachable.
 - Failing a new test is a blocker; flaky tests must be either fixed, marked
   `DISABLED_`, or filed as an issue.
 - Coverage floor (`COVERAGE_MIN` in the Makefile) is a ratchet: it only goes
@@ -96,17 +96,20 @@ The PR template covers:
 
 ## CI pipeline
 
-CI lives in `.github/workflows/` (GitHub Actions): build + tests, Trivy image
-scanning, gitleaks, shellcheck, clang-format/clang-tidy, ASan+UBSan, Spectral
-OpenAPI lint, and the openapi-drift + test-bucket checks. Release images emit
-SBOM + provenance (`release.yml`).
+CI lives in `.github/workflows/` (GitHub Actions): build + tests, gitleaks,
+shellcheck, clang-format/clang-tidy, ASan+UBSan and TSan sanitizer builds, a
+runtime-smoke image check, helm-render, frontend checks, and the openapi-drift
++ routes-registered + test-bucket + version-sync gates. (Spectral OpenAPI lint
+runs via pre-commit / `make lint-openapi`, not in CI.) Release images are
+Trivy-scanned and emit SBOM + provenance (`release.yml`).
 
 When you change a CI gate, update the gate list in `CLAUDE.md` in the same PR.
 
 ## Release
 
 Semver, tagged on `master`. A tag that matches `v*.*.*` triggers
-`.github/workflows/release.yml`, which builds multi-arch images for both
-the app and worker targets, pushes them to `ghcr.io/<owner>/<repo>` (and
-`-worker`), and opens a draft GitHub Release seeded from auto-generated
-commit notes. Update `CHANGELOG.md` under `## [Unreleased]` before tagging.
+`.github/workflows/release.yml`, which builds multi-arch images for the
+app, worker and frontend targets, pushes them to `ghcr.io/<owner>/<repo>`
+(and `-worker` / `-frontend`), and publishes a GitHub Release seeded from
+auto-generated commit notes. Update `CHANGELOG.md` under `## [Unreleased]`
+before tagging.

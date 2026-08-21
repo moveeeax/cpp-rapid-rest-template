@@ -10,6 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-06-bench-nightly-design.md`
 
+**Status — 2026-08-21: EXECUTED.** Landed on master as PR #8
+(`.github/workflows/bench-nightly.yml` + `scripts/wrk2bench.sh` +
+`scripts/bench-ci.sh`) with follow-up fix #9 (writable bind-mounted logs
+dir); cron verified via a temporary 01:00 UTC move and restored to
+03:20 UTC (f156daa). Trend publishes to `gh-pages:/dev/bench`.
+
 ## Global Constraints
 
 - Branch: `ci/wave1-bench-nightly` (already exists, carries the spec commit). All work lands there; one PR to master.
