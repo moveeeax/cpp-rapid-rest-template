@@ -128,8 +128,13 @@ kubectl --context "$CTX" -n "$NS" rollout status deploy/api --timeout=5m
 
 # ── Demo admin + sample data (idempotent: create-admin is a no-op if it exists) ──
 echo "==> Ensuring demo admin ($ADMIN_EMAIL) + seeding sample users"
+# Newest RUNNING pod: right after a rollout the label still matches the old
+# replica set's terminating pod, and exec-ing into it fails with "container
+# not found" (bit this deploy script on the 1.5.4 rollout).
 POD="$(kubectl --context "$CTX" -n "$NS" get pod -l app.kubernetes.io/name=cpp-api \
-    -o jsonpath='{.items[0].metadata.name}')"
+    --field-selector=status.phase=Running \
+    --sort-by=.metadata.creationTimestamp \
+    -o jsonpath='{.items[-1:].metadata.name}')"
 # config path is positional and must precede the mode flag.
 kubectl --context "$CTX" -n "$NS" exec "$POD" -- \
     /app/cpp_api_template config/config.json --create-admin "$ADMIN_EMAIL" "$ADMIN_PASS" || true
