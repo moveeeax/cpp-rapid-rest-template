@@ -38,6 +38,10 @@ baseDomain: example.com
 # ── Ingress (umbrella owns all ingress; subchart ingress is disabled) ──
 ingress:
   enabled: true          # false → release brings its own real-domain Ingress; the api.<env>/app.<env> placeholders don't render
+  # Edge request-body cap (nginx.ingress.kubernetes.io/proxy-body-size).
+  # ingress-nginx defaults to 1m, which 413s uploads at the edge before the
+  # frontend nginx (6m) or the app's 5 MB cap run. Keep >= the frontend cap.
+  proxyBodySize: "6m"
   className: nginx
   clusterIssuer: letsencrypt-prod        # cert-manager ClusterIssuer (DNS-01 for wildcard)
   wildcardTlsSecret: ""                  # set to reuse a pre-issued *.<env> cert; "" → per-host certs
