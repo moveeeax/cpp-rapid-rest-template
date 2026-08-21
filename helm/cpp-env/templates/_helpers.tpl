@@ -36,6 +36,13 @@ metadata:
     {{- include "cpp-env.labels" $ctx | nindent 4 }}
   annotations:
     cert-manager.io/cluster-issuer: {{ $ctx.Values.ingress.clusterIssuer | quote }}
+    {{- /* ingress-nginx defaults client_max_body_size to 1m, which 413s a
+           normal photo at the EDGE — before the frontend nginx (6m) or the
+           app's 5 MB upload cap ever see it. Found live: admin media upload
+           "Upload failed" on the demo for any image over 1 MB. Keep the
+           chain in sync: UploadController cap (5 MB) < frontend nginx 6m
+           <= this. */}}
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ $ctx.Values.ingress.proxyBodySize | default "6m" | quote }}
     {{- if $ctx.Values.ingress.externalDnsTarget }}
     external-dns.alpha.kubernetes.io/hostname: {{ $host | quote }}
     external-dns.alpha.kubernetes.io/target: {{ $ctx.Values.ingress.externalDnsTarget | quote }}
