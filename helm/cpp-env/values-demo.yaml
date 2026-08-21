@@ -55,7 +55,7 @@ demoReset:
 
 cpp-api:
   image:
-    tag: "1.5.3"      # pinned known-good amd64 build (unprefixed — release.yml strips the v); bump when a newer one ships
+    tag: "1.5.4"      # pinned known-good amd64 build (unprefixed — release.yml strips the v); bump when a newer one ships
   externalKafka:
     enabled: false
   externalDatabase:
@@ -72,7 +72,7 @@ cpp-api:
 
 cpp-worker:
   image:
-    tag: "1.5.3"
+    tag: "1.5.4"
   externalDatabase:
     password: ""            # set by deploy-demo.sh
   externalRedis:
@@ -89,4 +89,4 @@ cpp-worker:
 
 cpp-frontend:
   image:
-    tag: "1.5.3"
+    tag: "1.5.4"
