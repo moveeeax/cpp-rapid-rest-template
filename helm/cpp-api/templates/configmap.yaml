@@ -99,7 +99,12 @@ data:
         "backend": {{ .Values.storage.backend | quote }},
         "public_base_url": {{ .Values.storage.publicBaseUrl | quote }},
         "local": {
-          "root": "data/uploads"
+          {{- /* MUST equal the `uploads` emptyDir mountPath in deployment.yaml.
+                 The old relative "data/uploads" resolved to /app/data/uploads —
+                 NOT the mounted volume — so with readOnlyRootFilesystem every
+                 upload failed with EROFS, and without it uploads silently
+                 landed on the ephemeral container layer. */}}
+          "root": "/app/uploads"
         },
         "s3": {
           "endpoint": {{ .Values.storage.s3.endpoint | quote }},

@@ -25,11 +25,14 @@ and PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 A throwaway public demo runs at **[app.demo.tarassov.me](https://app.demo.tarassov.me)** —
 register your own account, or sign in as **`admin@demo.tarassov.me`** /
-**`DemoAdmin-2026`** to explore the admin, RBAC, and audit features. Outgoing mail
-lands in a public [Mailpit inbox](https://mail.demo.tarassov.me) and requests are
-traced in [Jaeger](https://jaeger.demo.tarassov.me). It holds no real data and is
-reset periodically. Stood up with [`scripts/deploy-demo.sh`](scripts/deploy-demo.sh)
-(`helm/cpp-env/values-demo.yaml`).
+**`DemoAdmin-2026`** to explore the admin, RBAC, audit and content (posts +
+uploads) features. Outgoing mail lands in a public
+[Mailpit inbox](https://mail.demo.tarassov.me); requests are traced to the
+cluster's Tempo and deep-linked from the admin UI into Grafana Explore. It
+holds no real data and is reset periodically. Stood up with
+[`scripts/deploy-demo.sh`](scripts/deploy-demo.sh)
+(`helm/cpp-env/values-demo.yaml`) on shared cluster infra (Postgres + Redis
+from a common namespace, isolated by role/database and `REDIS_DB`).
 
 <!-- init-project:live-demo:end -->
 ## Contents
