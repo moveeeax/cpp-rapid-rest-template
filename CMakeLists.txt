@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(cpp_api_template VERSION 1.5.3 LANGUAGES CXX)
+project(cpp_api_template VERSION 1.5.4 LANGUAGES CXX)
 
 # Release builds stamp the git tag in instead of the baked value above:
 # docker/Dockerfile declares ARG APP_VERSION and forwards it as
