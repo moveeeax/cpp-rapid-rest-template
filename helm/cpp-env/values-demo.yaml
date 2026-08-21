@@ -88,6 +88,12 @@ cpp-api:
     # cpp-worker below (api enqueues, worker BRPOPs the same logical DB).
     db: 1
     password: ""            # set by deploy-demo.sh (read from ns db secret)
+  # Public origin for account-email links AND the sitemap/post URLs the
+  # content module emits — without it the sitemap advertises the chart
+  # default app.example.com.
+  app:
+    baseUrl: "https://app.demo.tarassov.me"
+    name: "C++ REST Template — Demo"
   # The demo showcases the content module: posts + markdown delivery +
   # admin uploads (stored on the pod's uploads emptyDir — throwaway, like
   # everything here).
