@@ -107,6 +107,21 @@ RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETAR
         echo "vcpkg install failed (attempt $attempt) — retrying in 30s (transient GitHub fetch?)"; sleep 30; \
     done
 
+# sccache — compiler cache backed by the GitHub Actions cache API. Installed
+# AFTER the vcpkg layer so adding/bumping it never invalidates the ~35-minute
+# dependency world. CI passes the Actions credentials as BuildKit secrets (see
+# ci.yml); the build RUN below turns the launcher on only when they are
+# present, so local builds and the CI compose test-runner rebuild execute the
+# exact same RUN instruction (same layer cache key) with sccache silently off.
+ARG SCCACHE_VERSION=v0.17.0
+RUN case "${TARGETARCH:-amd64}" in \
+        arm64) SCCACHE_ARCH=aarch64 ;; \
+        *) SCCACHE_ARCH=x86_64 ;; \
+    esac && \
+    curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-${SCCACHE_ARCH}-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin --strip-components=1 \
+        "sccache-${SCCACHE_VERSION}-${SCCACHE_ARCH}-unknown-linux-musl/sccache"
+
 # Copy source code (after the dep layer, so editing src/ never rebuilds deps).
 COPY . .
 
@@ -122,8 +137,23 @@ ARG ENABLE_WERROR=OFF
 # wins, so local and CI builds are unaffected.
 ARG APP_VERSION
 
+# The Actions credentials come in as BuildKit SECRETS, not ARGs: a secret is
+# invisible to the layer cache key and never lands in image history, so the
+# instruction stays byte-identical between CI (sccache on) and local/compose
+# builds (secrets absent -> sccache off) and the alias-tag cache reuse in
+# `make test` keeps working.
 RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETARCH} \
     --mount=type=cache,target=/root/.cache/vcpkg,id=vcpkg-cache-${TARGETARCH} \
+    --mount=type=secret,id=actions_results_url \
+    --mount=type=secret,id=actions_runtime_token \
+    export ACTIONS_RESULTS_URL="$(cat /run/secrets/actions_results_url 2>/dev/null || true)" && \
+    export ACTIONS_RUNTIME_TOKEN="$(cat /run/secrets/actions_runtime_token 2>/dev/null || true)" && \
+    if [ -n "$ACTIONS_RESULTS_URL" ] && [ -n "$ACTIONS_RUNTIME_TOKEN" ]; then \
+        export SCCACHE_GHA_ENABLED=on; \
+        LAUNCHER="-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache"; \
+    else \
+        LAUNCHER=""; \
+    fi && \
     mkdir -p build && cd build && \
     cmake .. \
     -G Ninja \
@@ -131,8 +161,10 @@ RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETAR
     -DENABLE_WERROR=${ENABLE_WERROR} \
     -DPROJECT_VERSION_OVERRIDE=${APP_VERSION} \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake && \
-    cmake --build . --config Release -j$(nproc)
+    -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake \
+    ${LAUNCHER} && \
+    cmake --build . --config Release -j$(nproc) && \
+    if [ "$SCCACHE_GHA_ENABLED" = "on" ]; then sccache --show-stats; fi
 
 # Stage 2: Test runner (reuses builder, only runs tests)
 FROM builder AS test-runner
@@ -154,7 +186,9 @@ CMD ["--gtest_color=yes"]
 # Stage 2b: Sanitizer test build (ASan + UBSan)
 # Built as its own image layer so CI's test:sanitizers can `--cache-from` it and
 # skip the recompile on an unchanged tree (registry-backed → shared across all
-# runners; a host ccache can't survive true-dind jobs).
+# runners; a host ccache can't survive true-dind jobs — which is why CI's
+# compiles use sccache with the network-backed Actions cache instead, see
+# ci.yml).
 # VCPKG_INSTALLED_DIR reuses the deps the builder already installed under
 # /app/build — without it a fresh `cmake -B build-san` would reinstall the whole
 # dependency set from source (no binary cache inside the image).
