@@ -10,7 +10,7 @@
 #     misleading even though both binaries compile fine).
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # Extract suite names (TEST_F and TEST) from every directory argument.
 # HAS to iterate "$@": this used to read only "$1", so the tests/api/ bucket

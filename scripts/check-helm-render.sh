@@ -11,7 +11,7 @@
 # stale vendored subchart (charts/*.tgz are gitignored) can't skew the render.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CHART="$ROOT/helm/cpp-env"
 VALUES="$CHART/values-ci.yaml"
 

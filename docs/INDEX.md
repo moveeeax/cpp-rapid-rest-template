@@ -104,6 +104,7 @@ question instead of grepping the tree.
 | `check-artifact.py` | Content + leaked-template-syntax gate over ONE rendered artifact's extracted text (opt-in, for document-rendering forks — see docs/RENDER-GATE.md) |
 | `render-artifacts.sh` | Loop for the opt-in artifact gate: render every `templates/render/*/fixtures/*.json` via `RENDER_CMD`/`EXTRACT_CMD`, then gate with `check-artifact.py`; zero fixtures = failure |
 | `check-artifact-selftest.sh` | Mandatory selftest for the artifact gate: healthy example (incl. hostile data fixture) must PASS, two counted mutations must be caught and named |
+| `check-selftest.sh` | Prove all six `check-*` gates bite: plant 12 known breakages in scratch copies, require each gate to fail AND name it (control-pass first, counted mutators, a no-op mutation is itself a failure; needs helm+yq) |
 | `prod-check.sh` | Pre-deploy assertions on a production config (auth, secrets, TLS, fail-closed) |
 | `lint-openapi.sh` | Spectral lint with project ruleset |
 | `make-jwt.sh` | Mint a dev HS256 JWT (no Python/Node deps) |
