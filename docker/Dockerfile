@@ -142,6 +142,9 @@ ARG APP_VERSION
 # instruction stays byte-identical between CI (sccache on) and local/compose
 # builds (secrets absent -> sccache off) and the alias-tag cache reuse in
 # `make test` keeps working.
+# ACTIONS_CACHE_SERVICE_V2 is required: without it sccache's ghac backend
+# speaks the retired v1 cache protocol and every cache WRITE fails silently
+# (measured: 61/61 write errors, 0 hits on the next run).
 RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETARCH} \
     --mount=type=cache,target=/root/.cache/vcpkg,id=vcpkg-cache-${TARGETARCH} \
     --mount=type=secret,id=actions_results_url \
@@ -150,6 +153,7 @@ RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETAR
     export ACTIONS_RUNTIME_TOKEN="$(cat /run/secrets/actions_runtime_token 2>/dev/null || true)" && \
     if [ -n "$ACTIONS_RESULTS_URL" ] && [ -n "$ACTIONS_RUNTIME_TOKEN" ]; then \
         export SCCACHE_GHA_ENABLED=on; \
+        export ACTIONS_CACHE_SERVICE_V2=on; \
         LAUNCHER="-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache"; \
     else \
         LAUNCHER=""; \
