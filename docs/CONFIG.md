@@ -227,6 +227,37 @@ without these and intentionally ships with content still gated off. With the
 additive `API_PUBLIC_PATHS_EXTRA` key this footgun is avoidable: keep the
 override minimal (or unset) and add module paths through the extra key.
 
+## Billing module
+
+| Env | JSON key | Type | Default | Notes |
+|---|---|---|---|---|
+| `BILLING_ENABLED` | `billing.enabled` | bool | `false` | Master switch for the billing module (`Core::billing_enabled()`) — same on/off pattern as `CONTENT_ENABLED`; routes stay registered, handlers 404 while off. `Billing::initialize()` (called from `Core::initialize()`) throws at boot if this is `true` and `client_id`/`client_secret`/`webhook_id` are empty. |
+| — | `billing.provider` | string | `paypal` | Only provider supported today |
+| — | `billing.currency` | string | `USD` | ISO 4217; must be a 2-decimal currency (the cents parser rejects others) |
+| — | `billing.credits_per_unit` | int | `100` | Credits minted per currency unit (100 cents) captured. Config default only — the live value is the `billing_settings` row (migration 008), editable at runtime by the admin API |
+| — | `billing.min_amount_cents` | int | `100` | Custom top-up lower bound; live value in `billing_settings` |
+| — | `billing.max_amount_cents` | int | `100000` | Custom top-up upper bound; live value in `billing_settings` |
+| `PAYPAL_ENV` | `billing.paypal.environment` | enum | `sandbox` | `sandbox` \| `live`; unknown values fail safe to sandbox |
+| `PAYPAL_CLIENT_ID` | `billing.paypal.client_id` | string | — | Public; not a credential |
+| `PAYPAL_CLIENT_SECRET` | `billing.paypal.client_secret` | string | — | Never logged; the only true secret in this block — sourced from the chart Secret, never a plaintext value in tracked files |
+| `PAYPAL_WEBHOOK_ID` | `billing.paypal.webhook_id` | string | — | Identifies which PayPal webhook subscription to verify signatures against — an identifier, not a credential, but required when billing is enabled (an unset value 5xxs every webhook delivery forever) |
+| `PAYPAL_RETURN_URL` | `billing.paypal.return_url` | string | — | Where PayPal redirects on approved checkout |
+| `PAYPAL_CANCEL_URL` | `billing.paypal.cancel_url` | string | — | Where PayPal redirects on cancelled checkout |
+
+The webhook path (`/api/v1/billing/paypal/webhook`) is auth-public in the
+shipped defaults (PayPal's own servers call it directly, not an
+authenticated user). A deployment that overrides `api.public_paths` must
+re-expose it through the ADDITIVE `api.public_paths_extra` /
+`API_PUBLIC_PATHS_EXTRA` — never by re-listing the full override (see the
+warning above).
+
+Billing's transactional emails (top-up receipt, refund/reversal notice,
+failed-payment notice, and the admin adjust `notify` flag's adjustment
+notice) have no config keys of their own: they ride the generic
+`email.send` job type and the Mail settings below (`mail.enabled`,
+`mail.via_jobs`, SMTP block). Delivery is best-effort by contract — a mail
+outage can never affect the money path.
+
 ## Mail (SMTP)
 
 | Env | JSON key | Type | Default | Notes |

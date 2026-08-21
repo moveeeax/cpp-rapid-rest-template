@@ -11,7 +11,7 @@ want a worked example.
 
 ```bash
 ./scripts/new-migration.sh add_users_table            # or: make new-migration SLUG=add_users_table
-# ==> Created migrations/007_add_users_table.sql      # next free NNN after the shipped 000–006
+# ==> Created migrations/009_add_users_table.sql      # next free NNN after the shipped 000–008
 ```
 
 The script picks the next free `NNN`, slugifies the description, and writes a
