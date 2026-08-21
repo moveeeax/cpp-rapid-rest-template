@@ -562,7 +562,13 @@ private:
             if (!Observability::is_initialized() || !Database::is_initialized())
                 return;
             try {
-                auto lag = Database::get().execute_read([](auto& txn) -> std::optional<double> {
+                // Raw replica connection, NOT execute_read: this fires every
+                // refresh_sec forever, and the traced path minted an orphan
+                // root "db.read" trace per tick (~5.7k garbage traces/day per
+                // pod). Same reasoning as the probe-endpoint tracing exclusion
+                // in Middleware.hpp — internal maintenance must not trace.
+                auto lag = Database::get().with_replica_connection([](pqxx::connection& c) -> std::optional<double> {
+                    pqxx::nontransaction txn(c);
                     // pg_last_xact_replay_timestamp() alone measures "time since the
                     // last replayed COMMIT" — on an idle primary that grows without
                     // bound even though the replica is perfectly caught up (observed

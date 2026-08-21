@@ -6,6 +6,23 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.5] — 2026-08-21
+
+### Fixed
+- The `db_replica_lag_seconds` refresh (every 15 s, forever) ran through the
+  traced read path and minted an orphan root `db.read` trace per tick —
+  ~5.7k garbage traces/day per pod, spotted minutes after pointing the demo
+  at the cluster Tempo. Internal maintenance reads now use a raw replica
+  connection (new `Database::with_replica_connection`, the replica twin of
+  `with_primary_connection`) — no tracing, same LSN-comparing query.
+- The demo preset pins `cpp-api.app.baseUrl` — without it the sitemap and
+  account-email links advertised the chart-default `app.example.com`
+  (caught on the demo's first sitemap render after enabling content).
+- `deploy-demo.sh` execs into the newest RUNNING api pod — right after a
+  rollout the label selector still matched the old replica set's
+  terminating pod and `create-admin`/`seed` died with "container not
+  found".
+
 ## [1.5.4] — 2026-08-21
 
 Wave 2 — "downstream hardening": a three-fork audit (site, cyber-accountant,

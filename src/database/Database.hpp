@@ -545,6 +545,29 @@ public:
         return func(*conn);
     }
 
+    /// Replica twin of with_primary_connection: borrow a connection from the
+    /// round-robin replica pool and hand the RAW pqxx::connection to @p func —
+    /// no transaction wrapper, no retry, NO TRACING. For internal maintenance
+    /// reads that run on a timer (the replica-lag gauge refresh): routing those
+    /// through execute_read minted an orphan root "db.read" trace every tick —
+    /// thousands of garbage traces a day per pod. Throws when no replicas are
+    /// configured, same as execute_read's replica path.
+    template <typename Func>
+    auto with_replica_connection(Func&& func) -> decltype(func(std::declval<pqxx::connection&>())) {
+        auto& pool = replica_pool_or_throw_();
+        PooledConnection conn(pool);
+        struct GuardRestore {
+            ConnectionPool& p;
+            pqxx::connection& c;
+            ~GuardRestore() {
+                try {
+                    p.reapply_session_guards(c);
+                } catch (...) {}
+            }
+        } restore{pool, *conn};
+        return func(*conn);
+    }
+
     /**
      * @brief Read that MUST observe the latest committed write — always runs on
      *        the primary, never a (possibly lagging) replica. Use right after a
