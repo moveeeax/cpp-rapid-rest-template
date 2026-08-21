@@ -6,6 +6,8 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.4] — 2026-08-21
+
 Wave 2 — "downstream hardening": a three-fork audit (site, cyber-accountant,
 tarassov.me) backported every generic fix and gate the forks paid for
 (spec/plan in `docs/superpowers/`, PRs #17–#23, #27).
