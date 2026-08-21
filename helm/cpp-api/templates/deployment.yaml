@@ -57,6 +57,15 @@ spec:
               value: "0"
             - name: LOG_LEVEL
               value: {{ .Values.logging.level | quote }}
+            # One-shot migration process: no metrics exposer (nothing scrapes
+            # an init container, and the exposer's shutdown parks in a 2 s
+            # poll quantum), and no trace exporter — the OTLP flush at exit
+            # only produced "connection failed / export error" noise for spans
+            # nobody needs. Empty values are the code's documented off switch.
+            - name: METRICS_ADDRESS
+              value: ""
+            - name: OTLP_ENDPOINT
+              value: ""
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
