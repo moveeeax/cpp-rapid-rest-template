@@ -32,6 +32,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
       - name: Build builder image (cache warm)
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
@@ -42,6 +49,9 @@ jobs:
           load: true
           tags: cpp-api-template:builder
           build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
@@ -160,6 +170,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
       - name: Build app runtime image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
@@ -170,6 +187,9 @@ jobs:
           load: true
           tags: cpp-api-template:runtime-ci
           build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
@@ -185,6 +205,9 @@ jobs:
           load: true
           tags: cpp-api-template-worker:runtime-ci
           build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
@@ -293,6 +316,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
       - name: Build builder image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
@@ -303,6 +333,9 @@ jobs:
           load: true
           tags: cpp-api-template:builder
           build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
@@ -347,6 +380,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
       - name: Build builder image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
@@ -357,14 +397,24 @@ jobs:
           load: true
           tags: cpp-api-template:builder
           build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
           cache-to: type=gha,mode=max
 
       - name: Build & run unit tests with ASan + UBSan
+        # The -e ACTIONS_* pass-through + sccache launcher lets the sanitizer
+        # recompile hit the same Actions-cache-backed sccache as the builder
+        # image build (distinct flags → distinct cache entries, no collisions).
         run: |
           docker run --rm \
+              -e SCCACHE_GHA_ENABLED=on \
+              -e ACTIONS_CACHE_SERVICE_V2 \
+              -e ACTIONS_RESULTS_URL \
+              -e ACTIONS_RUNTIME_TOKEN \
               --entrypoint /bin/bash \
               cpp-api-template:builder -c "
                   set -e
@@ -374,9 +424,12 @@ jobs:
                       -G Ninja \
                       -DCMAKE_BUILD_TYPE=Debug \
                       -DENABLE_SANITIZERS=ON \
+                      -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+                      -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
                       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
                       -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed  # reuse the builder stage's vcpkg tree (mirrors the sanitizer-builder Dockerfile stage); avoids a full vcpkg reinstall
                   cmake --build build-san -j\$(nproc) --target cpp_api_template_tests_unit
+                  sccache --show-stats
                   ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
                   UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
                   ./build-san/cpp_api_template_tests_unit \
@@ -396,6 +449,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
       - name: Build builder image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
@@ -406,14 +466,23 @@ jobs:
           load: true
           tags: cpp-api-template:builder
           build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
           cache-to: type=gha,mode=max
 
       - name: Build & run unit tests with TSan
+        # Same sccache pass-through as the sanitizers job (TSan flags form
+        # their own cache entries).
         run: |
           docker run --rm \
+              -e SCCACHE_GHA_ENABLED=on \
+              -e ACTIONS_CACHE_SERVICE_V2 \
+              -e ACTIONS_RESULTS_URL \
+              -e ACTIONS_RUNTIME_TOKEN \
               --entrypoint /bin/bash \
               cpp-api-template:builder -c "
                   set -e
@@ -423,9 +492,12 @@ jobs:
                       -G Ninja \
                       -DCMAKE_BUILD_TYPE=Debug \
                       -DENABLE_TSAN=ON \
+                      -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+                      -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
                       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
                       -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed
                   cmake --build build-tsan -j\$(nproc) --target cpp_api_template_tests_unit
+                  sccache --show-stats
                   TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 \
                   ./build-tsan/cpp_api_template_tests_unit \
                       --gtest_color=yes
