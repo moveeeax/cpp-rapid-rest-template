@@ -67,6 +67,11 @@ and the OpenAPI-drift gate; C++ compiles in CI go through sccache backed by
 the Actions cache. Trivy scans images in the release pipeline
 (`.github/workflows/release.yml`), not in per-PR CI.
 
+An opt-in rendered-artifact gate for forks that render documents ships as
+`scripts/check-artifact.py` + `scripts/render-artifacts.sh` + a mandatory
+selftest (`scripts/check-artifact-selftest.sh`) — not wired into this repo's
+CI; the fork enables it per `docs/RENDER-GATE.md`.
+
 ## Don'ts
 
 - Don't edit the `builtin-baseline` in `vcpkg.json` or `ARG VCPKG_REF` in
