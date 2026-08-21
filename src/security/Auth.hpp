@@ -76,6 +76,12 @@ struct AuthPrincipal {
     std::string subject;
     std::vector<std::string> roles;
     std::vector<std::string> scopes;
+    // Active organization, from the access token's OPTIONAL "org" claim.
+    // Empty when the claim is absent (a pre-multi-tenancy token, or a user in
+    // 0/>1 orgs at mint time). Only consumed once the orgs starter kit is
+    // installed (scripts/add-orgs.sh): Tenancy::org_context_of() treats an
+    // empty value as fail-closed "no org access", never "unscoped access".
+    std::string org;
     json raw_claims;
 };
 
@@ -178,6 +184,10 @@ public:
         if (claims.contains(config_.jwt_scopes_claim)) {
             p.scopes = detail::extract_string_array(claims[config_.jwt_scopes_claim]);
         }
+        // Optional — most tokens have no "org" claim at all and that is fine
+        // (see the field comment on AuthPrincipal::org); verify_jwt never
+        // requires it, so pre-orgs tokens keep working unchanged.
+        p.org = claims.value("org", "");
         // All claim reads above are done — safe to steal the parsed JSON
         // instead of deep-copying it into the principal.
         p.raw_claims = std::move(*claims_opt);
