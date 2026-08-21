@@ -116,6 +116,14 @@ inline void ensure_http_metric_families() {
 
 namespace detail {
 
+/// Probe endpoints hit by kubelet/compose healthchecks every few seconds.
+/// They are excluded from tracing (a server span per probe floods the
+/// backend with garbage) and demoted to debug in the access log on success —
+/// a FAILING probe still logs at info via the status gate at the call sites.
+inline bool is_probe_path(const std::string& path) {
+    return path == "/healthz" || path == "/ready" || path == "/health";
+}
+
 /// Baseline security-header settings, resolved once at registration time by
 /// register_security_headers() and read by BOTH the post-handling advice and
 /// the sync-advice short-circuit path (which never reaches that advice).
@@ -502,6 +510,16 @@ inline void register_tracing_pre() {
         // stamped, and would restart the latency clock.
         const auto tctx = detail::ensure_request_ids(req);
         const std::string route = req->attributes()->get<std::string>("_norm_path");
+
+        // No server span for probes: kubelet asks /ready every ~10 s and
+        // /healthz every ~30 s, so tracing them exports thousands of
+        // identical no-op spans a day per pod. The string ids minted above
+        // stay — X-Request-Id and the (debug-level) log line still correlate.
+        // Health checks use a raw SELECT 1 (not TracingTxn), so no orphan
+        // child spans appear either.
+        if (detail::is_probe_path(req->path()))
+            return;
+
         const auto& incoming_tp = req->getHeader("traceparent");
         const auto parsed = Observability::Trace::parse_traceparent(std::string_view(incoming_tp));
 
@@ -729,7 +747,14 @@ inline void register_access_log_post() {
             const int status = static_cast<int>(resp->statusCode());
 
             const std::string trace_id = access_log_detail::emit_trace_headers(req, resp);
-            spdlog::info("{} {} {} {:.3f}ms tid={}", method, norm_path, status, timing.duration_ms, trace_id);
+            // Successful probes go to debug: kubelet hits /ready + /healthz
+            // every few seconds and at info they dominate the log. A probe
+            // that FAILS (>=400) logs at info — that is the signal on which
+            // the pod gets restarted, it must not hide at debug.
+            if (status < 400 && detail::is_probe_path(req->path()))
+                spdlog::debug("{} {} {} {:.3f}ms tid={}", method, norm_path, status, timing.duration_ms, trace_id);
+            else
+                spdlog::info("{} {} {} {:.3f}ms tid={}", method, norm_path, status, timing.duration_ms, trace_id);
             access_log_detail::record_metrics(method, norm_path, status, timing.duration_seconds);
             access_log_detail::finish_span(req, status);
         });
