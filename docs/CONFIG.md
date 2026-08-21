@@ -244,11 +244,19 @@ override minimal (or unset) and add module paths through the extra key.
 | `PAYPAL_RETURN_URL` | `billing.paypal.return_url` | string | — | Where PayPal redirects on approved checkout |
 | `PAYPAL_CANCEL_URL` | `billing.paypal.cancel_url` | string | — | Where PayPal redirects on cancelled checkout |
 
-When the billing HTTP layer lands (webhook endpoint), its webhook path must
-be made auth-public via the ADDITIVE `api.public_paths_extra` /
-`API_PUBLIC_PATHS_EXTRA` (PayPal's own servers call it directly, not an
-authenticated user) — never by overriding `api.public_paths` (see the
+The webhook path (`/api/v1/billing/paypal/webhook`) is auth-public in the
+shipped defaults (PayPal's own servers call it directly, not an
+authenticated user). A deployment that overrides `api.public_paths` must
+re-expose it through the ADDITIVE `api.public_paths_extra` /
+`API_PUBLIC_PATHS_EXTRA` — never by re-listing the full override (see the
 warning above).
+
+Billing's transactional emails (top-up receipt, refund/reversal notice,
+failed-payment notice, and the admin adjust `notify` flag's adjustment
+notice) have no config keys of their own: they ride the generic
+`email.send` job type and the Mail settings below (`mail.enabled`,
+`mail.via_jobs`, SMTP block). Delivery is best-effort by contract — a mail
+outage can never affect the money path.
 
 ## Mail (SMTP)
 

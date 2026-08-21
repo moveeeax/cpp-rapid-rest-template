@@ -85,7 +85,8 @@ the Actions cache. Trivy scans images in the release pipeline
   second-or-later write counted from zero; root cause never found — forensics
   in the site fork's commit b676430). Pattern instead: `INSERT ... ON CONFLICT
   DO NOTHING` → `SELECT ... FOR UPDATE` → compute the new value in C++ →
-  plain `UPDATE`.
+  plain `UPDATE` — canonical in-repo example: the wallet ledger in
+  `src/billing/Wallet.hpp`.
 - Don't use inja's default `{#`/`#}` comment markers in templates that carry
   TeX-like content — a `#1`-style macro parameter (`{#1}`) opens an inja
   comment that never closes and the whole render dies with a parser error at

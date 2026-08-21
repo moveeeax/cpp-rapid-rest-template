@@ -3217,7 +3217,7 @@ export interface paths {
         put?: never;
         /**
          * Manually adjust a user's wallet balance (admin)
-         * @description Routes through Billing::adjust — the only code allowed to write wallet_entries/wallet_balances. note is mandatory (non-empty); created_by on the resulting ledger row is always the authenticated admin's own id, never a client-supplied value. Writes an audit_log row.
+         * @description Routes through Billing::adjust — the only code allowed to write wallet_entries/wallet_balances. note is mandatory (non-empty); created_by on the resulting ledger row is always the authenticated admin's own id, never a client-supplied value. Writes an audit_log row. With notify=true, the target user receives a best-effort wallet-adjustment email (note is reused verbatim as the reason) after the adjustment and its audit row have both committed — email delivery never affects the money path or the response.
          */
         post: {
             parameters: {
@@ -3238,6 +3238,11 @@ export interface paths {
                          */
                         delta_credits: number;
                         note: string;
+                        /**
+                         * @description When true, sends the target user a best-effort wallet-adjustment email after the adjustment succeeds. Non-boolean values are silently ignored.
+                         * @default false
+                         */
+                        notify?: boolean;
                     };
                 };
             };

@@ -25,6 +25,7 @@ question instead of grepping the tree.
 | [`UPSTREAM.md`](UPSTREAM.md) | Fork↔template sync: pulling template fixes, the backport-candidate discipline for giving generic fixes back |
 | [`BENCHMARKS.md`](BENCHMARKS.md) | How to measure latency/throughput/footprint (`make bench` + presets) + a results template |
 | [`PATTERNS-FROM-FLASK-BASE.md`](PATTERNS-FROM-FLASK-BASE.md) | Authoritative list of patterns lifted from flask-base (file-level mapping included) |
+| [`../src/billing/Wallet.hpp`](../src/billing/Wallet.hpp) | Billing module core (PayPal top-ups → credit wallet): append-only ledger, idempotent capture/refund — the canonical example of the no-self-referencing-upsert accumulation pattern. Controllers in `src/api/BillingController.hpp` / `AdminBillingController.hpp`, transactional emails in `src/email/BillingEmails.hpp` |
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 spec for every registered route. `scripts/check-openapi-drift.sh` keeps it honest; `frontend/npm run gen:api` consumes it for typed client |
 | [`Doxyfile`](Doxyfile) | `make docs` configuration; output goes to `docs/html/` (gitignored) |
 | [`superpowers/`](superpowers/) | Archived design specs + implementation plans for past feature waves (content module, bench nightly, hygiene/hardening waves) |

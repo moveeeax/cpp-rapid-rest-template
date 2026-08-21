@@ -1695,6 +1695,10 @@ paths:
         wallet_entries/wallet_balances. note is mandatory (non-empty);
         created_by on the resulting ledger row is always the authenticated
         admin's own id, never a client-supplied value. Writes an audit_log row.
+        With notify=true, the target user receives a best-effort
+        wallet-adjustment email (note is reused verbatim as the reason) after
+        the adjustment and its audit row have both committed — email delivery
+        never affects the money path or the response.
       tags: [admin, billing]
       security: [{ BearerAuth: [] }]
       parameters:
@@ -1709,6 +1713,7 @@ paths:
               properties:
                 delta_credits: { type: integer, format: int64, description: "Signed; positive credits, negative debits. Zero is refused (400)." }
                 note:          { type: string, minLength: 1, maxLength: 2000 }
+                notify:        { type: boolean, default: false, description: "When true, sends the target user a best-effort wallet-adjustment email after the adjustment succeeds. Non-boolean values are silently ignored." }
       responses:
         '200':
           description: Adjusted

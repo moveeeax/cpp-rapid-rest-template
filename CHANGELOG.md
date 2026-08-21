@@ -6,6 +6,19 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Billing module (`BILLING_ENABLED`, off by default) — ported from the site
+  fork (#24): PayPal checkout top-ups credited to an append-only wallet
+  ledger (`src/billing/Wallet.hpp`, migrations 007/008), signature-verified
+  PayPal webhook (capture/refund/reversal, idempotent redelivery), admin
+  surface (package catalogue CRUD, runtime rate/bounds settings, payments
+  list, manual wallet adjustments with audit trail, business-metrics
+  aggregate), and best-effort transactional emails (top-up receipt,
+  refund/reversal notice, failed-payment notice, opt-in `notify`
+  adjustment notice) routed through the generic `email.send` job —
+  delivery can never affect the money path. Full OpenAPI coverage and
+  api/integration test suites included.
+
 ## [1.5.5] — 2026-08-21
 
 ### Fixed
