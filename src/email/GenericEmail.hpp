@@ -58,14 +58,6 @@ inline json process_job(const json& payload) {
     return json{{"sent", true}, {"to", m.to}};
 }
 
-inline bool via_jobs() {
-    if (!Jobs::is_initialized())
-        return false;
-    if (Config::is_initialized())
-        return Config::get().get<bool>("mail.via_jobs", "MAIL_VIA_JOBS", true);
-    return true;
-}
-
 /**
  * @brief App-facing entry: send an arbitrary email. Enqueue for the worker when
  *        Jobs is up (retry/DLQ, scales out), else send inline. Best-effort —
@@ -75,7 +67,7 @@ inline void send(const std::string& to,
                  const std::string& subject,
                  const std::string& text,
                  const std::string& html = "") {
-    if (via_jobs()) {
+    if (Email::detail::via_jobs()) {
         try {
             json payload = {{"to", to}, {"subject", subject}, {"text", text}};
             if (!html.empty())

@@ -16,6 +16,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include <drogon/drogon.h>
 #include <spdlog/spdlog.h>
@@ -62,9 +63,9 @@ inline bool schedule_recurring(const std::string& task_id, std::chrono::millisec
         spdlog::warn("Task '{}' already scheduled", task_id);
         return false;
     }
-    auto id = drogon::app().getLoop()->runEvery(interval.count() / 1000.0, [task_id, callback]() {
+    auto id = drogon::app().getLoop()->runEvery(interval.count() / 1000.0, [task_id, cb = std::move(callback)]() {
         try {
-            callback();
+            cb();
         } catch (const std::exception& e) {
             spdlog::error("Recurring task '{}' failed: {}", task_id, e.what());
         }

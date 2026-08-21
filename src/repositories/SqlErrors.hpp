@@ -34,4 +34,18 @@ auto translate_sql(Fn&& fn, Translator&& translate) -> decltype(fn()) {
     }
 }
 
+/**
+ * @brief Translator factory for the ubiquitous single-SQLSTATE case: returns
+ *        a translator that throws E when the SQLSTATE equals @p state and
+ *        falls through (original error rethrown by translate_sql) otherwise.
+ *        Call with a string literal — the lambda stores the view.
+ */
+template <typename E>
+auto throw_on(std::string_view state) {
+    return [state](std::string_view ss) {
+        if (ss == state)
+            throw E{};
+    };
+}
+
 }  // namespace Repositories::detail

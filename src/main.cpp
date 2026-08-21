@@ -11,7 +11,6 @@
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -32,6 +31,7 @@
 #include "utils/Config.hpp"
 #include "utils/ErrorResponse.hpp"
 #include "utils/Redact.hpp"
+#include "utils/Strings.hpp"
 
 namespace {
 
@@ -103,10 +103,18 @@ void print_usage() {
               << "\nPositional: path to config JSON (default: config/config.json)\n";
 }
 
-void print_routes() {
+// Print the endpoint table. The two call sites share the format but differ
+// in indent and path column width: --print-routes emits a flush-left, wider
+// table; the server boot banner indents each row under "Endpoints:".
+void print_endpoint_list(const char* indent, int path_width) {
     for (const auto& ep : Api::get_endpoints()) {
-        std::cout << std::left << std::setw(7) << ep.method << std::setw(32) << ep.path << ep.description << "\n";
+        std::cout << indent << std::left << std::setw(7) << ep.method << std::setw(path_width) << ep.path
+                  << ep.description << "\n";
     }
+}
+
+void print_routes() {
+    print_endpoint_list("", 32);
 }
 
 // Migrate-only mode (for Helm init-container or ad-hoc migration runs).
@@ -321,10 +329,7 @@ int run_server(const std::string& config_file) {
     std::cout << "Threads: " << threads << std::endl;
     std::cout << "==================================================" << std::endl;
     std::cout << "\nEndpoints:" << std::endl;
-    for (const auto& ep : Api::get_endpoints()) {
-        std::cout << "  " << std::left << std::setw(7) << ep.method << std::setw(26) << ep.path << ep.description
-                  << std::endl;
-    }
+    print_endpoint_list("  ", 26);
     std::cout << "  Metrics: http://" << host << ":9090/metrics" << std::endl;
     std::cout << "\nPress Ctrl+C to stop the server\n" << std::endl;
 
@@ -391,10 +396,8 @@ int main(int argc, char* argv[]) {
         std::filesystem::create_directories("logs");
 
         // Migrate-only mode (CLI flag or RUN_MIGRATIONS_ONLY env — equivalent).
-        const char* migrate_only_env = std::getenv("RUN_MIGRATIONS_ONLY");
-        const bool migrate_only = args.mode == "--run-migrations" ||
-                                  (migrate_only_env != nullptr &&
-                                   (std::string(migrate_only_env) == "true" || std::string(migrate_only_env) == "1"));
+        const bool migrate_only =
+            args.mode == "--run-migrations" || Utils::Strings::env_flag_true("RUN_MIGRATIONS_ONLY");
         if (migrate_only)
             return run_migrate_only(args.config_file);
 

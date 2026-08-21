@@ -12,7 +12,9 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
+#include <drogon/HttpRequest.h>
 #include <spdlog/spdlog.h>
 
 #include <nlohmann/json.hpp>
@@ -50,13 +52,14 @@ inline std::string extract_key(const drogon::HttpRequestPtr& req) {
     const std::string& x = req->getHeader("X-API-Key");
     if (!x.empty())
         return x;
-    const std::string& authz = req->getHeader("Authorization");
-    for (const char* scheme : {"Bearer ", "ApiKey "}) {
-        const std::size_t n = std::string(scheme).size();
-        if (authz.size() > n && authz.compare(0, n, scheme) == 0) {
-            std::string tok = authz.substr(n);
-            if (tok.compare(0, std::string(kPrefix).size(), kPrefix) == 0)
-                return tok;
+    const std::string& authz_header = req->getHeader("Authorization");
+    const std::string_view authz{authz_header};
+    constexpr std::string_view key_prefix{kPrefix};
+    for (const std::string_view scheme : {std::string_view{"Bearer "}, std::string_view{"ApiKey "}}) {
+        if (authz.size() > scheme.size() && authz.starts_with(scheme)) {
+            const std::string_view tok = authz.substr(scheme.size());
+            if (tok.starts_with(key_prefix))
+                return std::string(tok);
         }
     }
     return "";

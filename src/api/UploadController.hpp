@@ -24,7 +24,7 @@
 #include <initializer_list>
 #include <optional>
 #include <string>
-#include <unordered_map>
+#include <string_view>
 
 #include <drogon/HttpController.h>
 #include <drogon/MultiPart.h>
@@ -48,7 +48,7 @@ using json = nlohmann::json;
 
 // Cheap magic-number sniff: confirm the bytes actually match the claimed image
 // type, so a .jpg that's really HTML/script can't be stored and served back.
-inline bool image_bytes_match(const std::string& ext, const std::string& b) {
+inline bool image_bytes_match(const std::string& ext, std::string_view b) {
     const auto starts = [&](std::initializer_list<unsigned char> sig) {
         if (b.size() < sig.size())
             return false;
@@ -84,10 +84,8 @@ public:
     METHOD_LIST_END
 
     void upload(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
 
         MultiPartParser parser;
@@ -97,24 +95,19 @@ public:
         }
         const auto& file = parser.getFiles()[0];
 
+        // Lowercased here (not only inside mime_for_ext) because the extension
+        // also feeds the stored key and the magic-number sniff below.
         std::string ext(file.getFileExtension());
         std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
-        static const std::unordered_map<std::string, std::string> kTypes = {
-            {"jpg", "image/jpeg"},
-            {"jpeg", "image/jpeg"},
-            {"png", "image/png"},
-            {"gif", "image/gif"},
-            {"webp", "image/webp"},
-            // SVG intentionally excluded: it can carry inline <script> → stored
-            // XSS when served same-origin. Raster only.
-        };
-        const auto type_it = kTypes.find(ext);
-        if (type_it == kTypes.end()) {
+        const std::string type = mime_for_ext(ext);
+        if (type.empty()) {
             callback(ErrorResponse::bad_request("unsupported_type", "Allowed: jpg, jpeg, png, gif, webp"));
             return;
         }
 
-        const std::string bytes(file.fileContent());
+        // Validate on a view — the (up to 5 MB) body is only copied into an
+        // owning string once every check has passed, right before Storage::put.
+        const std::string_view bytes = file.fileContent();
         constexpr std::size_t kMaxBytes = 5 * 1024 * 1024;  // 5 MB
         if (bytes.empty() || bytes.size() > kMaxBytes) {
             callback(ErrorResponse::bad_request("bad_size", "File must be 1 byte – 5 MB"));
@@ -125,15 +118,13 @@ public:
             return;
         }
 
-        if (!Storage::is_initialized()) {
-            callback(ErrorResponse::service_unavailable("storage_unavailable", "Storage backend not configured"));
+        if (!require_storage(callback))
             return;
-        }
 
         // Opaque random key (never a client-supplied filename) under a posts/ prefix.
         const std::string key = "posts/" + Utils::Crypto::random_hex(16) + "." + ext;
         try {
-            Storage::get().put(key, bytes, type_it->second);
+            Storage::get().put(key, std::string(bytes), type);
         } catch (const std::exception& e) {
             spdlog::error("upload: storage put failed for {}: {}", key, e.what());
             callback(ErrorResponse::service_unavailable("storage_error", "Could not store the file"));
@@ -145,18 +136,15 @@ public:
 
     // GET /api/v1/admin/uploads — offset-paged listing of the posts/ prefix.
     void listUploads(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
-        if (!Storage::is_initialized()) {
-            callback(ErrorResponse::service_unavailable("storage_unavailable", "Storage backend not configured"));
+        if (!require_storage(callback))
             return;
-        }
         const auto page = parse_page_params(req, /*default_limit=*/50, /*max_limit=*/200);
         with_repo_errors(callback, "listUploads", [&] {
-            auto all = Storage::get().list("posts/");
+            auto& st = Storage::get();
+            auto all = st.list("posts/");
             json data = json::array();
             const std::size_t from = std::min<std::size_t>(static_cast<std::size_t>(page.offset), all.size());
             const std::size_t to = std::min<std::size_t>(from + static_cast<std::size_t>(page.limit), all.size());
@@ -165,15 +153,12 @@ public:
                 const std::string name = o.key.substr(o.key.rfind('/') + 1);
                 data.push_back({{"key", o.key},
                                 {"name", name},
-                                {"url", Storage::get().url(o.key)},
+                                {"url", st.url(o.key)},
                                 {"size_bytes", o.size_bytes},
                                 {"content_type", content_type_for(name)},
                                 {"created_at", o.last_modified}});
             }
-            callback(Response::ok({{"data", data},
-                                   {"total", static_cast<long>(all.size())},
-                                   {"limit", page.limit},
-                                   {"offset", page.offset}}));
+            callback(Response::paginated(data, static_cast<long>(all.size()), page.limit, page.offset));
         });
     }
 
@@ -182,20 +167,16 @@ public:
     void deleteUpload(const HttpRequestPtr& req,
                       std::function<void(const HttpResponsePtr&)>&& callback,
                       const std::string& name) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
         if (name.empty() || name.find('/') != std::string::npos || name.find("..") != std::string::npos ||
             name.find('\\') != std::string::npos) {
             callback(ErrorResponse::bad_request("invalid_name", "Expected a single-segment object name"));
             return;
         }
-        if (!Storage::is_initialized()) {
-            callback(ErrorResponse::service_unavailable("storage_unavailable", "Storage backend not configured"));
+        if (!require_storage(callback))
             return;
-        }
         const std::string key = "posts/" + name;
         with_repo_errors(callback, "deleteUpload", [&] {
             if (!Storage::get().exists(key)) {
@@ -276,10 +257,20 @@ private:
         return cfg.get<std::string>("storage.public_base_url", "STORAGE_PUBLIC_BASE_URL", "").empty();
     }
 
-    // Extension → content type for listings (uploads are raster images only).
-    static std::string content_type_for(const std::string& name) {
-        const auto dot = name.rfind('.');
-        std::string ext = dot == std::string::npos ? std::string{} : name.substr(dot + 1);
+    // Reject with 503 unless a Storage backend is configured. Returns false
+    // after responding — callers `if (!require_storage(callback)) return;`,
+    // same contract as the Api::require_* guards.
+    static bool require_storage(const std::function<void(const HttpResponsePtr&)>& callback) {
+        if (Storage::is_initialized())
+            return true;
+        callback(ErrorResponse::service_unavailable("storage_unavailable", "Storage backend not configured"));
+        return false;
+    }
+
+    // The single extension → MIME table (uploads are raster images only; SVG
+    // intentionally excluded: it can carry inline <script> → stored XSS when
+    // served same-origin). Lowercases its input; empty result = unknown ext.
+    static std::string mime_for_ext(std::string ext) {
         std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
         if (ext == "jpg" || ext == "jpeg")
             return "image/jpeg";
@@ -289,7 +280,15 @@ private:
             return "image/gif";
         if (ext == "webp")
             return "image/webp";
-        return "application/octet-stream";
+        return {};
+    }
+
+    // Extension → content type for listings/serving; unknown extensions map to
+    // application/octet-stream (which serveUpload treats as "not servable").
+    static std::string content_type_for(const std::string& name) {
+        const auto dot = name.rfind('.');
+        const std::string mime = mime_for_ext(dot == std::string::npos ? std::string{} : name.substr(dot + 1));
+        return mime.empty() ? "application/octet-stream" : mime;
     }
 };
 

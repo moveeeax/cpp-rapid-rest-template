@@ -87,16 +87,16 @@ public:
                 Repositories::PostRepository repo;
                 entries = repo.list_published_for_sitemap();
             }
-            const std::string base = base_url();
+            // Escaped once: the base URL is loop-invariant, only slugs vary.
+            const std::string base = esc(base_url());
 
             std::string xml;
             xml.reserve(entries.size() * 128 + 256);
             xml += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
             xml += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
-            xml +=
-                "  <url><loc>" + esc(base) + "/</loc><changefreq>monthly</changefreq><priority>1.0</priority></url>\n";
+            xml += "  <url><loc>" + base + "/</loc><changefreq>monthly</changefreq><priority>1.0</priority></url>\n";
             for (const auto& e : entries) {
-                xml += "  <url><loc>" + esc(base) + "/posts/" + esc(e.slug) + "</loc>";
+                xml += "  <url><loc>" + base + "/posts/" + esc(e.slug) + "</loc>";
                 if (!e.lastmod.empty())
                     xml += "<lastmod>" + e.lastmod + "</lastmod>";
                 xml += "<changefreq>monthly</changefreq><priority>0.6</priority></url>\n";

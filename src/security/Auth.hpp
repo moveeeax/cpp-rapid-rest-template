@@ -14,15 +14,12 @@
 #pragma once
 
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
-#include <cstring>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -181,7 +178,9 @@ public:
         if (claims.contains(config_.jwt_scopes_claim)) {
             p.scopes = detail::extract_string_array(claims[config_.jwt_scopes_claim]);
         }
-        p.raw_claims = claims;
+        // All claim reads above are done — safe to steal the parsed JSON
+        // instead of deep-copying it into the principal.
+        p.raw_claims = std::move(*claims_opt);
         return p;
     }
 
@@ -371,11 +370,20 @@ inline bool has_any_role(const drogon::HttpRequestPtr& req, const std::vector<st
 }
 
 /**
+ * @brief True when auth checks must be enforced — the module is initialized
+ *        and not running in AuthMode::None. Shared guard for the require_*
+ *        helpers below, which all no-op when auth is disabled.
+ */
+inline bool auth_enforced() {
+    return is_initialized() && get().config().mode != AuthMode::None;
+}
+
+/**
  * @brief Returns a 403 response if the request's principal lacks the role,
  *        or nullptr if it has the role (or auth is disabled).
  */
 inline drogon::HttpResponsePtr require_role(const drogon::HttpRequestPtr& req, const std::string& role) {
-    if (!is_initialized() || get().config().mode == AuthMode::None)
+    if (!auth_enforced())
         return {};
     if (has_role(req, role))
         return {};
@@ -384,7 +392,7 @@ inline drogon::HttpResponsePtr require_role(const drogon::HttpRequestPtr& req, c
 
 inline drogon::HttpResponsePtr require_any_role(const drogon::HttpRequestPtr& req,
                                                 const std::vector<std::string>& roles) {
-    if (!is_initialized() || get().config().mode == AuthMode::None)
+    if (!auth_enforced())
         return {};
     if (has_any_role(req, roles))
         return {};
@@ -400,7 +408,7 @@ inline drogon::HttpResponsePtr require_any_role(const drogon::HttpRequestPtr& re
  *        confirmation-required routes with API_REQUIRE_CONFIRMED.
  */
 inline drogon::HttpResponsePtr require_confirmed(const drogon::HttpRequestPtr& req) {
-    if (!is_initialized() || get().config().mode == AuthMode::None)
+    if (!auth_enforced())
         return {};
     auto p = principal_of(req);
     if (!p)
@@ -460,7 +468,7 @@ inline bool current_user_is_admin(const drogon::HttpRequestPtr& req) {
  *        permission, or nullptr if it has it (or auth is disabled).
  */
 inline drogon::HttpResponsePtr require_permission(const drogon::HttpRequestPtr& req, std::uint32_t perm) {
-    if (!is_initialized() || get().config().mode == AuthMode::None)
+    if (!auth_enforced())
         return {};
     if (current_user_can(req, perm))
         return {};

@@ -39,6 +39,7 @@
 #include <curl/curl.h>
 #include <spdlog/spdlog.h>
 
+#include "jobs/Jobs.hpp"
 #include "utils/Config.hpp"
 #include "utils/Strings.hpp"
 
@@ -198,6 +199,19 @@ inline size_t read_cb(char* dest, size_t size, size_t nmemb, void* userp) {
     std::memcpy(dest, ctx->body->data() + ctx->pos, take);
     ctx->pos += take;
     return take;
+}
+
+/**
+ * @brief Route outbound mail through the Jobs queue? Shared policy check of
+ *        the AccountEmails and SendEmail dispatch paths: requires Jobs to be
+ *        up, and honors the mail.via_jobs / MAIL_VIA_JOBS toggle (default on).
+ */
+inline bool via_jobs() {
+    if (!Jobs::is_initialized())
+        return false;
+    if (Config::is_initialized())
+        return Config::get().get<bool>("mail.via_jobs", "MAIL_VIA_JOBS", true);
+    return true;
 }
 
 }  // namespace detail

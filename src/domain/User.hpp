@@ -10,7 +10,6 @@
 #pragma once
 
 #include <optional>
-#include <pqxx/pqxx>
 #include <string>
 
 #include <nlohmann/json.hpp>

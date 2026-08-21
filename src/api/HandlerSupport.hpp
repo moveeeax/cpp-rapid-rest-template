@@ -29,10 +29,24 @@
 #include <drogon/HttpResponse.h>
 #include <spdlog/spdlog.h>
 
+#include <nlohmann/json.hpp>
+
 #include "repositories/RepoErrors.hpp"
 #include "utils/ErrorResponse.hpp"
 
 namespace Api {
+
+/**
+ * @brief Collect a range of json-convertible items into a JSON array — the
+ *        `json::array()` + push_back loop every list handler repeats.
+ */
+template <class Range>
+nlohmann::json to_json_array(const Range& items) {
+    nlohmann::json data = nlohmann::json::array();
+    for (const auto& item : items)
+        data.push_back(item);
+    return data;
+}
 
 /**
  * @brief Run @p fn, translating any repository exception into the canonical

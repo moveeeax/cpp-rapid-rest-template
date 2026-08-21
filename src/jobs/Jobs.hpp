@@ -157,7 +157,7 @@ public:
         job.traceparent = Observability::Trace::current_traceparent();
 
         // Store job data
-        redis.set(job_key(job.id), job.to_json().dump());
+        save_job_(redis, job);
 
         // Push job ID to the type-specific queue
         redis.lpush(queue_key(type), job.id);
@@ -256,7 +256,7 @@ public:
         job.updated_at = now_epoch();
 
         // Update status in Redis
-        redis.set(job_key(job.id), job.to_json().dump());
+        save_job_(redis, job);
 
         // Lease the job so a cross-worker reaper can reclaim it if this worker
         // dies before complete()/fail(). Best-effort: a missed lease only loses
@@ -281,12 +281,7 @@ public:
         check_initialized();
         auto& redis = Cache::get().get_client();
 
-        auto data = redis.get(job_key(id));
-        if (!data) {
-            throw std::runtime_error("Job not found: " + id);
-        }
-
-        auto job = Job::from_json(json::parse(*data));
+        auto job = load_job_or_throw_(redis, id);
         job.status = "completed";
         job.result = result;
         job.updated_at = now_epoch();
@@ -294,12 +289,7 @@ public:
         redis.setex(job_key(id), result_ttl_, job.to_json().dump());
         // Drop from the worker's processing list — the job is officially done
         // and no recovery pass should resurrect it.
-        if (!job.worker_id.empty()) {
-            try {
-                redis.lrem(processing_key(job.worker_id), 0, id);
-            } catch (...) {}
-        }
-        clear_lease_(redis, id);
+        release_from_worker_(redis, job);
         spdlog::debug("Job completed: id={}", id);
     }
 
@@ -310,29 +300,19 @@ public:
         check_initialized();
         auto& redis = Cache::get().get_client();
 
-        auto data = redis.get(job_key(id));
-        if (!data) {
-            throw std::runtime_error("Job not found: " + id);
-        }
-
-        auto job = Job::from_json(json::parse(*data));
+        auto job = load_job_or_throw_(redis, id);
         job.retry_count++;
         job.updated_at = now_epoch();
 
         // Remove from the worker's processing list whether we requeue or DLQ —
         // recovery should never double-process a job that already failed once.
-        if (!job.worker_id.empty()) {
-            try {
-                redis.lrem(processing_key(job.worker_id), 0, id);
-            } catch (...) {}
-        }
-        clear_lease_(redis, id);
+        release_from_worker_(redis, job);
 
         if (job.retry_count < job.max_retries) {
             // Requeue for retry.
             job.status = "pending";
             job.error = error;
-            redis.set(job_key(id), job.to_json().dump());
+            save_job_(redis, job);
             const int64_t delay_ms = backoff_delay_ms_(job.retry_count);
             if (delay_ms > 0) {
                 // Park in the delayed set; promote_due_jobs() returns it to the
@@ -351,7 +331,7 @@ public:
             // or requeue them explicitly via /api/v1/jobs/dlq/{id}/requeue).
             job.status = "dead";
             job.error = error;
-            redis.set(job_key(id), job.to_json().dump());
+            save_job_(redis, job);
             redis.lpush(dlq_key(job.type), id);
             redis.sadd(kDlqAllKey, id);  // index for "list all DLQ" queries
             spdlog::warn("Job {} DLQ'd after {} retries: {}", id, job.retry_count, error);
@@ -367,17 +347,9 @@ public:
     void dead_letter(const std::string& id, const std::string& error) {
         check_initialized();
         auto& redis = Cache::get().get_client();
-        auto data = redis.get(job_key(id));
-        if (!data)
-            throw std::runtime_error("Job not found: " + id);
-        auto job = Job::from_json(json::parse(*data));
+        auto job = load_job_or_throw_(redis, id);
         job.updated_at = now_epoch();
-        if (!job.worker_id.empty()) {
-            try {
-                redis.lrem(processing_key(job.worker_id), 0, id);
-            } catch (...) {}
-        }
-        clear_lease_(redis, id);
+        release_from_worker_(redis, job);
         job.status = "dead";
         job.error = error;
         // Index BEFORE committing the blob: the 3 writes aren't atomic, and if
@@ -387,7 +359,7 @@ public:
         // list_dlq heals once the blob write lands.
         redis.lpush(dlq_key(job.type), id);
         redis.sadd(kDlqAllKey, id);
-        redis.set(job_key(id), job.to_json().dump());
+        save_job_(redis, job);
         spdlog::warn("Job {} sent straight to DLQ (permanent failure): {}", id, error);
     }
 
@@ -419,13 +391,15 @@ public:
     bool requeue_from_dlq(const std::string& id) {
         check_initialized();
         auto& redis = Cache::get().get_client();
-        auto data = redis.get(job_key(id));
-        if (!data)
-            return false;
         Job job;
         try {
-            job = Job::from_json(json::parse(*data));
-        } catch (...) {
+            auto loaded = load_job_(redis, id);
+            if (!loaded)
+                return false;
+            job = std::move(*loaded);
+        } catch (const json::exception&) {
+            // Unparseable blob — same "not requeueable" answer as a missing one.
+            // Redis errors still propagate (see the class exception contract).
             return false;
         }
         if (job.status != "dead")
@@ -439,7 +413,7 @@ public:
         job.retry_count = 0;
         job.error.clear();
         job.updated_at = now_epoch();
-        redis.set(job_key(id), job.to_json().dump());
+        save_job_(redis, job);
         redis.lpush(queue_key(job.type), id);
         spdlog::info("Job {} requeued from DLQ", id);
         return true;
@@ -464,30 +438,7 @@ public:
      *        can see which specific job type is clogged.
      */
     std::unordered_map<std::string, long> dlq_depth_by_type() {
-        std::unordered_map<std::string, long> out;
-        if (!initialized_)
-            return out;
-        try {
-            auto& redis = Cache::get().get_client();
-            std::vector<std::string> keys;
-            long long cursor = 0;
-            do {
-                std::vector<std::string> batch;
-                cursor = redis.scan(cursor, "jobs:dlq:*", 100, std::back_inserter(batch));
-                for (auto& k : batch) {
-                    if (k == kDlqAllKey)
-                        continue;  // skip the `_all` index set
-                    long long len = redis.llen(k);
-                    // strip "jobs:dlq:" prefix
-                    const std::string prefix = "jobs:dlq:";
-                    std::string type = k.rfind(prefix, 0) == 0 ? k.substr(prefix.size()) : k;
-                    out[std::move(type)] = static_cast<long>(len);
-                }
-            } while (cursor != 0);
-        } catch (const std::exception& e) {
-            spdlog::warn("dlq_depth_by_type: scan failed: {}", e.what());
-        }
-        return out;
+        return depth_by_prefix_("jobs:dlq:", kDlqAllKey, "dlq_depth_by_type");
     }
 
     /**
@@ -499,27 +450,7 @@ public:
      *        refresher so dashboards/alerts can see a backlog forming.
      */
     std::unordered_map<std::string, long> queue_depth_by_type() {
-        std::unordered_map<std::string, long> out;
-        if (!initialized_)
-            return out;
-        try {
-            auto& redis = Cache::get().get_client();
-            long long cursor = 0;
-            do {
-                std::vector<std::string> batch;
-                cursor = redis.scan(cursor, "jobs:queue:*", 100, std::back_inserter(batch));
-                for (auto& k : batch) {
-                    long long len = redis.llen(k);
-                    // strip "jobs:queue:" prefix
-                    const std::string prefix = "jobs:queue:";
-                    std::string type = k.rfind(prefix, 0) == 0 ? k.substr(prefix.size()) : k;
-                    out[std::move(type)] = static_cast<long>(len);
-                }
-            } while (cursor != 0);
-        } catch (const std::exception& e) {
-            spdlog::warn("queue_depth_by_type: scan failed: {}", e.what());
-        }
-        return out;
+        return depth_by_prefix_("jobs:queue:", "", "queue_depth_by_type");
     }
 
     /**
@@ -549,22 +480,17 @@ public:
         }
         for (const auto& id : ids) {
             try {
-                auto data = redis.get(job_key(id));
-                if (!data)
+                auto loaded = load_job_(redis, id);
+                if (!loaded)
                     continue;
-                Job job;
-                try {
-                    job = Job::from_json(json::parse(*data));
-                } catch (...) {
-                    continue;
-                }
+                Job job = std::move(*loaded);
                 // Put it back on the live queue so another worker (or this one
                 // after restart) picks it up again. Don't touch retry_count —
                 // the job didn't fail, we just missed its completion.
                 job.status = "pending";
                 job.worker_id.clear();
                 job.updated_at = now_epoch();
-                redis.set(job_key(id), job.to_json().dump());
+                save_job_(redis, job);
                 redis.lpush(queue_key(job.type), id);
                 ++recovered;
             } catch (...) {}
@@ -605,11 +531,10 @@ public:
                 // it, so concurrent workers never double-promote the same job.
                 if (redis.zrem(delayed_key(), id) == 0)
                     continue;
-                auto data = redis.get(job_key(id));
-                if (!data)
+                auto job = load_job_(redis, id);
+                if (!job)
                     continue;  // blob expired — drop the orphaned delayed entry
-                auto job = Job::from_json(json::parse(*data));
-                redis.lpush(queue_key(job.type), id);
+                redis.lpush(queue_key(job->type), id);
                 ++moved;
             } catch (...) {}
         }
@@ -659,11 +584,7 @@ public:
         check_initialized();
         auto& redis = Cache::get().get_client();
 
-        auto data = redis.get(job_key(id));
-        if (!data) {
-            return std::nullopt;
-        }
-        return Job::from_json(json::parse(*data));
+        return load_job_(redis, id);
     }
 
     /**
@@ -673,12 +594,12 @@ public:
         check_initialized();
         auto& redis = Cache::get().get_client();
 
-        auto data = redis.get(job_key(id));
-        if (!data) {
+        auto loaded = load_job_(redis, id);
+        if (!loaded) {
             return false;
         }
 
-        auto job = Job::from_json(json::parse(*data));
+        auto job = std::move(*loaded);
         // Terminal states can't be cancelled. The real vocabulary is
         // pending/processing/completed/dead (+ "failed", which only cancel()
         // itself sets). The old guard checked "failed" but not "dead", so a DLQ
@@ -737,26 +658,8 @@ public:
 
         JobPage page;
         if (!ids.empty()) {
-            std::vector<std::string> keys;
-            keys.reserve(ids.size());
-            for (const auto& id : ids)
-                keys.push_back(job_key(id));
-            std::vector<sw::redis::OptionalString> vals;
-            vals.reserve(keys.size());
-            redis.mget(keys.begin(), keys.end(), std::back_inserter(vals));
-
             std::vector<std::string> stale;
-            for (size_t i = 0; i < vals.size(); ++i) {
-                if (!vals[i]) {
-                    stale.push_back(ids[i]);
-                    continue;
-                }
-                try {
-                    page.jobs.push_back(Job::from_json(json::parse(*vals[i])));
-                } catch (...) {
-                    stale.push_back(ids[i]);
-                }
-            }
+            page.jobs = fetch_jobs_by_ids_(ids, &stale);
             // Heal: blob expired → drop the id from the queried index (and,
             // when the type is known, from the global one too; global-query
             // staleness in typed indexes heals on their own queries).
@@ -780,14 +683,18 @@ public:
     void set_trace_id(const std::string& id, const std::string& trace_id) {
         check_initialized();
         auto& redis = Cache::get().get_client();
-        auto data = redis.get(job_key(id));
-        if (!data)
+        std::optional<Job> job;
+        try {
+            job = load_job_(redis, id);
+        } catch (const json::exception&) {
+            return;  // unparseable blob — best-effort no-op
+        }
+        if (!job)
             return;
         try {
-            auto job = Job::from_json(json::parse(*data));
-            job.trace_id = trace_id;
-            job.updated_at = now_epoch();
-            redis.set(job_key(id), job.to_json().dump());
+            job->trace_id = trace_id;
+            job->updated_at = now_epoch();
+            save_job_(redis, *job);
         } catch (...) {}
     }
 
@@ -841,6 +748,77 @@ private:
         } catch (...) {}
     }
 
+    /**
+     * @brief Load the job blob for @p id in one GET. Returns nullopt when the
+     *        key is missing; JSON parse errors propagate (nlohmann exceptions),
+     *        exactly like the inlined get→parse it replaces.
+     */
+    std::optional<Job> load_job_(sw::redis::Redis& redis, const std::string& id) {
+        auto data = redis.get(job_key(id));
+        if (!data)
+            return std::nullopt;
+        return Job::from_json(json::parse(*data));
+    }
+
+    /// load_job_, but a missing blob throws — the "Job not found" contract
+    /// complete()/fail()/dead_letter() expose to controllers.
+    Job load_job_or_throw_(sw::redis::Redis& redis, const std::string& id) {
+        auto job = load_job_(redis, id);
+        if (!job)
+            throw std::runtime_error("Job not found: " + id);
+        return std::move(*job);
+    }
+
+    /// Persist the job blob (plain SET, no TTL) — the write half of load_job_.
+    void save_job_(sw::redis::Redis& redis, const Job& job) { redis.set(job_key(job.id), job.to_json().dump()); }
+
+    // Drop the job from its worker's processing list (best-effort) and release
+    // its visibility lease — the shared terminal-transition cleanup of
+    // complete()/fail()/dead_letter(). cancel() keeps its own variant (it also
+    // clears the pending queue and gates the lrem on was_processing).
+    void release_from_worker_(sw::redis::Redis& redis, const Job& job) {
+        if (!job.worker_id.empty()) {
+            try {
+                redis.lrem(processing_key(job.worker_id), 0, job.id);
+            } catch (...) {}
+        }
+        clear_lease_(redis, job.id);
+    }
+
+    /**
+     * @brief SCAN every list under @p prefix and return {type → LLEN}, where
+     *        type is the key with the prefix stripped. Best-effort: swallows
+     *        Redis errors ("<log_ctx>: scan failed"). Shared body of
+     *        dlq_depth_by_type() / queue_depth_by_type().
+     * @param skip_key Exact key to skip (the DLQ `_all` index set; "" = none).
+     */
+    std::unordered_map<std::string, long> depth_by_prefix_(const std::string& prefix,
+                                                           const std::string& skip_key,
+                                                           const char* log_ctx) {
+        std::unordered_map<std::string, long> out;
+        if (!initialized_)
+            return out;
+        try {
+            auto& redis = Cache::get().get_client();
+            const std::string pattern = prefix + "*";
+            long long cursor = 0;
+            do {
+                std::vector<std::string> batch;
+                cursor = redis.scan(cursor, pattern, 100, std::back_inserter(batch));
+                for (auto& k : batch) {
+                    if (!skip_key.empty() && k == skip_key)
+                        continue;  // skip the `_all` index set
+                    long long len = redis.llen(k);
+                    std::string type = k.rfind(prefix, 0) == 0 ? k.substr(prefix.size()) : k;
+                    out[std::move(type)] = static_cast<long>(len);
+                }
+            } while (cursor != 0);
+        } catch (const std::exception& e) {
+            spdlog::warn("{}: scan failed: {}", log_ctx, e.what());
+        }
+        return out;
+    }
+
     // Backoff delay for a job that just failed its @p retry_count-th attempt
     // (>=1). Exponential (base * 2^(retry_count-1)), capped at the configured
     // max. Returns 0 when backoff is disabled → caller requeues immediately.
@@ -858,9 +836,12 @@ private:
 
     /**
      * @brief Load the Job rows for @p ids in a single MGET round-trip.
-     *        Missing or unparseable entries are skipped silently.
+     *        Missing or unparseable entries are skipped silently — unless
+     *        @p stale is given, in which case their ids are collected there
+     *        (list_paged uses that to heal expired index entries).
      */
-    std::vector<Job> fetch_jobs_by_ids_(const std::vector<std::string>& ids) {
+    std::vector<Job> fetch_jobs_by_ids_(const std::vector<std::string>& ids,
+                                        std::vector<std::string>* stale = nullptr) {
         std::vector<Job> jobs;
         if (ids.empty())
             return jobs;
@@ -873,12 +854,18 @@ private:
         vals.reserve(keys.size());
         redis.mget(keys.begin(), keys.end(), std::back_inserter(vals));
         jobs.reserve(vals.size());
-        for (const auto& v : vals) {
-            if (!v)
+        for (size_t i = 0; i < vals.size(); ++i) {
+            if (!vals[i]) {
+                if (stale)
+                    stale->push_back(ids[i]);
                 continue;
+            }
             try {
-                jobs.push_back(Job::from_json(json::parse(*v)));
-            } catch (...) {}
+                jobs.push_back(Job::from_json(json::parse(*vals[i])));
+            } catch (...) {
+                if (stale)
+                    stale->push_back(ids[i]);
+            }
         }
         return jobs;
     }

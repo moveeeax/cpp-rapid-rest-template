@@ -9,6 +9,13 @@
 
 #pragma once
 
+#include <functional>
+#include <string>
+
+#include <drogon/HttpResponse.h>
+
+#include "api/RequestUtils.hpp"
+#include "core/Core.hpp"
 #include "security/Auth.hpp"
 #include "utils/ErrorResponse.hpp"
 
@@ -81,3 +88,29 @@
             return;                                                                                 \
         }                                                                                           \
     } while (0)
+
+namespace Api {
+
+/// Gate a content-module handler: when the content module is off
+/// (CONTENT_ENABLED=false) the whole surface answers 404 instead of a 500
+/// against a missing table. Returns false after responding — callers
+/// `if (!require_content_enabled(callback)) return;`.
+inline bool require_content_enabled(const std::function<void(const drogon::HttpResponsePtr&)>& callback) {
+    if (Core::content_enabled())
+        return true;
+    callback(ErrorResponse::not_found("content"));
+    return false;
+}
+
+/// Reject a path-parameter id that isn't a canonical 8-4-4-4-12 UUID with the
+/// shared 400 shape. Returns false after responding — callers
+/// `if (!require_valid_uuid(id, callback)) return;`.
+inline bool require_valid_uuid(const std::string& id,
+                               const std::function<void(const drogon::HttpResponsePtr&)>& callback) {
+    if (is_valid_uuid(id))
+        return true;
+    callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+    return false;
+}
+
+}  // namespace Api

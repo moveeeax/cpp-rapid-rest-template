@@ -62,7 +62,7 @@ inline void mask_secrets(nlohmann::json& node) {
             mask_secrets(*it);
             continue;
         }
-        const std::string value = it->get<std::string>();
+        const auto& value = it->get_ref<const std::string&>();
         if (value.empty())
             continue;
         if (key_is_secret(it.key()))

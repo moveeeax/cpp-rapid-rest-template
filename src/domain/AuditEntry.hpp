@@ -7,9 +7,7 @@
 
 #pragma once
 
-#include <cstdint>
 #include <optional>
-#include <pqxx/pqxx>
 #include <string>
 
 #include <nlohmann/json.hpp>

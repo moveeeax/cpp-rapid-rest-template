@@ -141,14 +141,6 @@ inline void deliver_now(const std::string& kind, const Domain::User& user, const
     }
 }
 
-inline bool via_jobs() {
-    if (!Jobs::is_initialized())
-        return false;
-    if (Config::is_initialized())
-        return Config::get().get<bool>("mail.via_jobs", "MAIL_VIA_JOBS", true);
-    return true;
-}
-
 /**
  * @brief Controller-side entry: enqueue for the worker when Jobs is up
  *        (scales horizontally, survives SMTP hiccups via retry/DLQ);
@@ -156,7 +148,7 @@ inline bool via_jobs() {
  *        caller's perspective — never throws.
  */
 inline void dispatch(const std::string& kind, const Domain::User& user, const std::string& new_email = "") {
-    if (via_jobs()) {
+    if (Email::detail::via_jobs()) {
         try {
             json payload = {{"kind", kind}, {"user_id", user.id}};
             if (!new_email.empty())
