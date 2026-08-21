@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787200373734,
+  "lastUpdate": 1787285663345,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -511,6 +511,38 @@ window.BENCHMARK_DATA = {
           {
             "name": "jobs req/s",
             "value": 9436.72,
+            "unit": "req/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "2f03cfbc5d1d97582caf74623d2495290685520c",
+          "message": "docs: changelog for wave 2 (downstream hardening), mark the plan executed (#28)",
+          "timestamp": "2026-08-20T21:17:54Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/2f03cfbc5d1d97582caf74623d2495290685520c"
+        },
+        "date": 1787285662383,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "healthz req/s",
+            "value": 40654.22,
+            "unit": "req/s"
+          },
+          {
+            "name": "jobs req/s",
+            "value": 15923.5,
             "unit": "req/s"
           }
         ]
