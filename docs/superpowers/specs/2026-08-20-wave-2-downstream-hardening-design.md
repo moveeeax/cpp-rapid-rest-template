@@ -3,6 +3,11 @@
 Date: 2026-08-20. Owner decision: execute all waves sequentially, builds/tests
 in GitHub Actions only, autonomous overnight run.
 
+Status: executed 2026-08-21 — waves A–G landed as PRs #17, #18, #19, #21,
+#20, #23, #22, #27 (see the plan's Status section); deferred optional
+modules tracked in issues #24 (billing), #25 (multi-tenancy), #26
+(rendered-artifact gate).
+
 ## Where this comes from
 
 A three-agent audit of the template's downstream repos:

@@ -109,7 +109,7 @@ methodology and a results template.
 - Structured logs via spdlog with the trace-id in each access log line.
 
 **Testing**
-- 305 unit/integration tests against real Postgres + Redis, bucketed by
+- 436 unit/integration tests against real Postgres + Redis, bucketed by
   explicit suite filters (`make test-unit` runs sidecar-free).
 - **HTTP end-to-end suite**: a real Drogon server + client exercising the
   whole middleware chain on the wire — auth gate, cookie sessions, refresh
@@ -126,9 +126,10 @@ methodology and a results template.
   with baseline SLO alerts, opt-in `ExternalSecret` skeleton for Vault /
   AWS / GCP secret stores.
 - GitHub Actions: build + unit/integration tests on `ubuntu-latest`, gitleaks
-  secret scan, Trivy image scan, clang-format / clang-tidy lints, ASan + UBSan
-  sanitizer build, helm-render and OpenAPI-drift gates. The `release.yml` job
-  publishes the **multi-arch** (amd64 + arm64) image on `v*` tags — see the arch
+  secret scan, clang-format / clang-tidy lints, ASan + UBSan and TSan
+  sanitizer builds, a runtime-smoke image check, helm-render and OpenAPI-drift
+  gates. The `release.yml` job Trivy-scans and publishes the **multi-arch**
+  (amd64 + arm64) image on `v*` tags — see the arch
   note under [Kubernetes](#kubernetes) before deploying to an amd64 cluster.
 - `CODEOWNERS`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, PR templates.
 - Production config profile (`config/config.production.json`) gated by
@@ -149,7 +150,7 @@ methodology and a results template.
 - Admin user management (list / invite / detail / update / delete /
   roles) with self-protection (no self-delete, no self-role-change).
 - **Audit trail** (`audit_log`): every admin mutation on users and roles is
-  recorded; read it via `GET /api/admin/audit` (paginated + filterable by
+  recorded; read it via `GET /api/v1/admin/audit` (paginated + filterable by
   action/actor/target/date), gated on a dedicated `kAuditRead` permission bit.
 - Email pipeline: SMTP via libcurl + inja templates; Mailpit dev
   sidecar at http://localhost:8025. Account emails are delivered through
@@ -272,10 +273,11 @@ columns. The finer-grained steps below are for adding pieces individually.
 
 Typical order:
 
-1. **Add your first migration** — drop `migrations/001_<topic>.sql`. See
+1. **Add your first migration** — `make new-migration SLUG=<topic>` generates
+   the next `migrations/NNN_<topic>.sql` (the template already ships 000–006). See
    [`migrations/README.md`](migrations/README.md) for naming and
    [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for a worked `users` example.
-2. **Generate a controller** — `./scripts/new-endpoint.sh FooController Get /api/foo`
+2. **Generate a controller** — `./scripts/new-endpoint.sh FooController Get /api/v1/foo`
    creates the stub, wires the include into `src/api/Api.hpp`, adds a row
    to `Api::get_endpoints()` in `src/api/Endpoints.hpp`, and prints an
    OpenAPI stub. Pass `--with-test` to
@@ -362,9 +364,11 @@ in their security block.
 
 ## Adding an endpoint
 
-The template already ships a full auth / RBAC / admin / audit domain
-(`AuthController`, `AccountController`, `AdminController`, `AuditController`)
-next to the infrastructure controllers (`HealthController`, `JobsController`) —
+The template already ships a full auth / RBAC / admin / audit / API-key domain
+(`AuthController`, `AccountController`, `AdminController`, `AuditController`,
+`ApiKeyController`), a content module behind `content.enabled`
+(`PostsController`, `UploadController`, `ContentPagesController`), and the
+infrastructure controllers (`HealthController`, `JobsController`) —
 you start from a working example, not a blank `src/api/`. For *your* resource, a
 worked CRUD stack — typed DTO + repository + controller + migration + test —
 lives in [`docs/EXAMPLES.md`](docs/EXAMPLES.md). Copy from there, don't try to
@@ -373,7 +377,7 @@ invent it from scratch.
 1. Add the route to a controller (existing or new) under `src/api/`:
    ```cpp
    METHOD_LIST_BEGIN
-   ADD_METHOD_TO(MyController::listThings, "/api/things", Get);
+   ADD_METHOD_TO(MyController::listThings, "/api/v1/things", Get);
    METHOD_LIST_END
    ```
 2. Register the new route in `Api::get_endpoints()` in `src/api/Endpoints.hpp`
@@ -489,20 +493,25 @@ src/
   api/           HTTP controllers + endpoint registry + middleware pipeline
     Api.hpp           controller includes + middleware wiring (register_controllers)
     Endpoints.hpp     get_endpoints() — the route registry (drift-checked vs openapi.yaml)
-    Middleware.hpp    middleware bodies (auth → rate limit → idempotency → cors → trace)
-    Guards.hpp        handler guard macros (API_REQUIRE_ADMIN / _PRINCIPAL / _JOBS_READY)
+    Middleware.hpp    middleware bodies (request id → content type → auth → csrf → rate limit → idempotency → cors)
+    Guards.hpp        handler guards (API_REQUIRE_ADMIN / _PRINCIPAL / _JOBS_READY macros, require_content_enabled, require_valid_uuid)
     RequestUtils.hpp  parse_int, clamp_int, parse_page_params, is_valid_uuid, normalize_path_for_metrics
     Validation.hpp    composable request-body validators
-    *Controller.hpp   Built-in controllers: Auth, Account, Admin, Audit, Health, Jobs (full auth/admin domain). Add your own with scripts/new-endpoint.sh; docs/EXAMPLES.md walks through a full Users CRUD.
+    *Controller.hpp   Built-in controllers: Auth, Account, Admin, Audit, ApiKey, Health, Jobs + the content module (Posts, Upload, ContentPages). Add your own with scripts/new-endpoint.sh; docs/EXAMPLES.md walks through a full Users CRUD.
   cache/         Redis client (standalone or Sentinel HA)
   core/          Application lifecycle (init, health, shutdown)
   database/      Postgres pool + migrations
+  domain/        Domain structs (User, Role, AuditEntry, ApiKey, Post)
+  email/         SMTP mailer + account-email templates and the account_email job worker
   jobs/          Redis-backed job queue + DLQ
   messaging/     Kafka producer/consumer
   observability/ Logger, Prometheus, OpenTelemetry tracer, W3C Trace Context
+  repositories/  SQL repositories (CrudBase, User/Role/Audit/ApiKey/Post, typed SQL errors)
   security/      Auth (JWT/Bearer) + RateLimit + Idempotency
+  storage/       Object/file storage seam (local-disk backend, S3/GCS-swappable)
   tasks/         Drogon-timer-based task scheduler
   utils/         Config (JSON + env), Retry, Strings, ErrorResponse
+  webhooks/      Outbound webhooks (HMAC-signed, delivered via the job system)
 
 tests/
   unit/          Pure C++ tests (no external services)
@@ -515,7 +524,8 @@ helm/            Helm charts (cpp-api, cpp-worker, cpp-frontend + cpp-env umbrel
 scripts/         make-jwt.sh, smoke.sh, init-project.sh, bench.sh,
                  new-resource.sh (full CRUD), new-endpoint.sh (single
                  controller, --with-test / --patch-openapi), new-job.sh
-                 (job handler), new-react-page.sh, new-migration.sh,
+                 (job handler), new-module.sh (feature module),
+                 new-react-page.sh, new-migration.sh,
                  check-openapi-drift.sh, lint-openapi.sh, env-check.sh
 docs/            openapi.yaml, CONFIG.md, EXAMPLES.md, INDEX.md, adr/, Doxyfile
 ```
@@ -535,7 +545,7 @@ docs/            openapi.yaml, CONFIG.md, EXAMPLES.md, INDEX.md, adr/, Doxyfile
 | `make test-local NAME=Jobs*` | Native gtest run with a `--gtest_filter` |
 | `make test-watch` | Re-run unit tests on src/ or tests/ change (watchexec or entr) |
 | `make watch` | Rebuild + restart on `src/` change (entr or watchexec) |
-| `make coverage` | gcovr HTML report in `coverage/index.html`; fails under `COVERAGE_MIN`% line coverage (default 40, a regression floor) |
+| `make coverage` | gcovr HTML report in `coverage/index.html`; fails under `COVERAGE_MIN`% line coverage (default 54, a regression floor) |
 | `make ci-local` | Reproduce CI locally: format check + drift + spectral + tidy + tests |
 | `make helm-lint` | `helm lint` + smoke `helm template` over all four charts |
 | `make routes` / `make health` | Print endpoint table / hit health probes |
