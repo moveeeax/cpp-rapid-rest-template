@@ -17,6 +17,7 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 |---|---|---|---|---|
 | `APP_NAME` | `app.name` | string | `App` | Display name used in email subjects / templates |
 | `APP_BASE_URL` | `app.base_url` | string | `http://localhost:8080` | Public origin used to build links in account emails (confirm / reset / change-email) |
+| `APP_ENV` | `app.env` | string | `development` | Environment label used by boot-time config validation. `production` / `prod` makes `AUTH_MODE=none` a fatal boot error and warns on insecure combinations (cookie `secure=false`, rate limit off / fail-open, docs on, cookie auth without CSRF) |
 
 ## Server
 
@@ -35,7 +36,7 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `API_PUBLIC_PATHS` | `api.public_paths` | csv | `/,…,/api/auth/login,/api/auth/register,/api/auth/refresh,/api/account/confirm/*,/api/account/reset-password-request,/api/account/reset-password/*,/api/account/change-email/*` | Paths that bypass auth + rate limit. Exact-match; a trailing `*` is a prefix match (used for the token-bearing account routes). FULL OVERRIDE of the built-in default — prefer the extra key below for additions. |
+| `API_PUBLIC_PATHS` | `api.public_paths` | csv | `/`, the probes (`/healthz,/ready,/health,/metrics`), `/api/v1/docs`, `/api/v1/openapi.yaml`, `/api/v1/auth/{login,register,refresh}`, `/api/v1/account/confirm/*`, `/api/v1/account/reset-password-request`, `/api/v1/account/reset-password/*`, `/api/v1/account/change-email/*`, `/api/v1/account/join-from-invite/*`, `/api/v1/public/posts`, `/api/v1/public/posts/*`, `/posts/*`, `/sitemap.xml`, `/uploads/*` (`Utils::Strings::kDefaultPublicPathsCsv`) | Paths that bypass auth. Exact-match; a trailing `*` is a prefix match (used for the token-bearing account routes). FULL OVERRIDE of the built-in default — prefer the extra key below for additions. |
 | `API_PUBLIC_PATHS_EXTRA` | `api.public_paths_extra` | csv | — | ADDITIVE companion to `API_PUBLIC_PATHS`: entries are appended to the resolved public-paths set (built-in default or override), same matching rules. Use it to open extra routes (a payment-provider webhook, a public feed) without re-listing — and risking silently dropping — the default set. |
 | `CORS_ALLOWED_ORIGINS` | `cors.allowed_origins` | csv | — | Empty disables CORS |
 
@@ -69,8 +70,21 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 | `RATE_LIMIT_WINDOW_SEC` | `rate_limit.window_sec` | int | `60` | |
 | `RATE_LIMIT_SCOPE` | `rate_limit.scope` | enum | `ip_or_user` | `ip` \| `ip_or_user` |
 | `RATE_LIMIT_TRUST_PROXY` | `rate_limit.trust_proxy` | bool | `false` | Use `X-Forwarded-For` |
+| `RATE_LIMIT_TRUSTED_PROXY_COUNT` | `rate_limit.trusted_proxy_count` | int | `1` | With `trust_proxy` on: number of trusted hops appended to XFF (indexed from the right); values < 1 are clamped to 1 |
 | `RATE_LIMIT_FAIL_OPEN` | `rate_limit.fail_open` | bool | `true` | Allow if Redis is down |
 | `RATE_LIMIT_WHITELIST` | `rate_limit.whitelist` | csv | — | IPs / user IDs that bypass |
+| `RATE_LIMIT_PROTECTED_REQUESTS` | `rate_limit.protected_requests` | int | `10` | Stricter budget for the auth-public brute-force surfaces (login/register/refresh, token-bearing account links, public content — `Utils::Strings::kDefaultProtectedPathsCsv`), which the general limiter skips as public paths |
+| `RATE_LIMIT_PROTECTED_WINDOW_SEC` | `rate_limit.protected_window_sec` | int | `60` | Window for the protected-path budget |
+
+## Security headers & CSRF
+
+| Env | JSON key | Type | Default | Notes |
+|---|---|---|---|---|
+| `SECURITY_CSRF_ENABLED` | `security.csrf.enabled` | bool | `false` | Double-submit CSRF check for cookie-auth mutations; production config validation warns if cookie auth is on without it |
+| `SECURITY_CSRF_COOKIE` | `security.csrf.cookie_name` | string | `csrf-token` | Readable (non-HttpOnly) cookie the SPA mirrors |
+| `SECURITY_CSRF_HEADER` | `security.csrf.header_name` | string | `X-CSRF-Token` | Header the mirrored token must arrive in |
+| `SECURITY_HSTS` | `security.hsts` | bool | `false` | Emit `Strict-Transport-Security` (only makes sense behind TLS) |
+| `SECURITY_HSTS_MAX_AGE` | `security.hsts_max_age` | int | `31536000` | `max-age` in seconds (1 year) |
 
 ## Idempotency
 
@@ -86,19 +100,27 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `DOCS_ENABLED` | `docs.enabled` | bool | `false` | Mount `/api/docs` + `/api/openapi.yaml` — dev only |
-| `DOCS_OPENAPI_PATH` | `docs.openapi_path` | string | `docs/openapi.yaml` | Path served at `/api/openapi.yaml` |
+| `DOCS_ENABLED` | `docs.enabled` | bool | `false` | Mount `/api/v1/docs` + `/api/v1/openapi.yaml` — dev only |
+| `DOCS_OPENAPI_PATH` | `docs.openapi_path` | string | `docs/openapi.yaml` | Path served at `/api/v1/openapi.yaml` |
 
 ## Object storage
 
-`Storage::get()` is a get/put/remove seam (`src/storage/Storage.hpp`). Only the
-`local` filesystem backend ships; swap in S3/GCS by subclassing `StorageBackend`.
+`Storage::get()` is a get/put/remove seam (`src/storage/Storage.hpp`). Two
+backends ship: `local` (filesystem) and `s3` (SigV4 — MinIO/AWS/R2/…); anything
+else fails fast at boot. Swap in another store by subclassing `StorageBackend`.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `STORAGE_BACKEND` | `storage.backend` | string | `local` | Only `local` is built in; any other value fails fast at boot |
+| `STORAGE_BACKEND` | `storage.backend` | string | `local` | `local` \| `s3`; any other value fails fast at boot |
 | `STORAGE_LOCAL_ROOT` | `storage.local.root` | string | `data/uploads` | Directory the local backend writes objects under (gitignored) |
 | `STORAGE_PUBLIC_BASE_URL` | `storage.public_base_url` | string | — | Prepended to a key by `url()` (e.g. a CDN base); empty → returns the bare key |
+| `S3_ENDPOINT` | `storage.s3.endpoint` | string | — | Required when `backend=s3` (boot fails without it) |
+| `S3_REGION` | `storage.s3.region` | string | `us-east-1` | |
+| `S3_BUCKET` | `storage.s3.bucket` | string | — | Required when `backend=s3` (boot fails without it) |
+| `S3_ACCESS_KEY` | `storage.s3.access_key` | string | — | |
+| `S3_SECRET_KEY` | `storage.s3.secret_key` | string | — | |
+| `S3_TIMEOUT_SEC` | `storage.s3.timeout_sec` | int | `10` | Per-request budget |
+| `S3_CONNECT_TIMEOUT_SEC` | `storage.s3.connect_timeout_sec` | int | `2` | Connect budget |
 
 ## Observability
 
@@ -128,9 +150,13 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 | `DB_RETRY_BASE_DELAY_MS` | `database.retry.base_delay_ms` | int | `100` | |
 | `DB_RETRY_MAX_DELAY_MS` | `database.retry.max_delay_ms` | int | `2000` | |
 | `DB_RETRY_JITTER` | `database.retry.jitter` | bool | `true` | Full-jitter backoff |
+| `DB_POOL_METRIC_REFRESH_SEC` | `database.pool_metric_refresh_sec` | int | `10` | Refresh interval for the `db_pool_active_connections` / `db_pool_size` gauges |
 
 For individual Postgres URL components used by the sample config:
 `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`.
+
+`DATABASE_REQUIRE_SECURE_PASSWORD` (env-only flag): an empty or known-weak DB
+password normally logs a warning at boot; set this to `true` to make it fatal.
 
 ### Read replicas and `DB_POOL_SIZE`
 
@@ -153,7 +179,7 @@ handlers **plus** the worker, even when replicas absorb the bulk of reads.
 | `CACHE_POOL_SIZE` | `cache.pool_size` | int | `10` | |
 | `REDIS_USE_SENTINEL` | `cache.use_sentinel` | bool | `false` | |
 | `REDIS_MASTER_NAME` | `cache.sentinel.master_name` | string | `mymaster` | |
-| `REDIS_SENTINEL_NODES` | `cache.sentinel.nodes` | csv | — | `host:port,host:port,...` |
+| `REDIS_SENTINEL_NODES` | `cache.sentinel.nodes` | csv | `localhost:26379` | Env: `host:port,host:port,...`. The JSON key is an array of `{host, port}` objects, not a csv string |
 | `REDIS_SENTINEL_PASSWORD` | `cache.sentinel.password` | string | falls back to `REDIS_PASSWORD` | |
 | `REDIS_SOCKET_TIMEOUT_MS` | `cache.socket_timeout_ms` | int | `500` | Per-command timeout; tighten under low-latency hot paths, loosen for large values / EVAL. |
 | `REDIS_POOL_WAIT_TIMEOUT_MS` | `cache.pool_wait_timeout_ms` | int | `500` | Max wait for a free connection from the pool. |
@@ -173,12 +199,16 @@ For URL components: `REDIS_HOST`, `REDIS_PORT`.
 
 ## Jobs
 
-| Env | JSON key | Type | Default |
-|---|---|---|---|
-| `JOBS_ENABLED` | `jobs.enabled` | bool | `false` |
-| `JOBS_RESULT_TTL` | `jobs.result_ttl` | int | `86400` |
-| `JOBS_MAX_RETRIES` | `jobs.max_retries` | int | `3` |
+| Env | JSON key | Type | Default | Notes |
+|---|---|---|---|---|
+| `JOBS_ENABLED` | `jobs.enabled` | bool | `false` | |
+| `JOBS_RESULT_TTL` | `jobs.result_ttl` | int | `86400` | |
+| `JOBS_MAX_RETRIES` | `jobs.max_retries` | int | `3` | |
+| `JOBS_RETRY_BACKOFF_BASE_MS` | `jobs.retry_backoff_base_ms` | int | `0` | Delay before a failed job is retried (exponential, capped by the max below). `0` keeps the legacy immediate requeue |
+| `JOBS_RETRY_BACKOFF_MAX_MS` | `jobs.retry_backoff_max_ms` | int | `60000` | Cap on the retry backoff |
+| `JOBS_VISIBILITY_TIMEOUT_SEC` | `jobs.visibility_timeout_sec` | int | `0` | Processing lease: a job whose worker dies is re-queued after this many seconds. `0` disables leases (legacy behaviour) |
 | `JOBS_DLQ_METRIC_REFRESH_SEC` | `jobs.dlq_metric_refresh_sec` | int | `10` | Exports `jobs_dlq_depth{type="..."}` plus an aggregate `type="_total"` |
+| `JOBS_QUEUE_METRIC_REFRESH_SEC` | `jobs.queue_metric_refresh_sec` | int | `10` | Same bookkeeping for the waiting queue: `jobs_queue_depth{type="..."}` plus `type="_total"` |
 | `DB_REPLICA_LAG_METRIC_REFRESH_SEC` | `database.replica_lag_metric_refresh_sec` | int | `15` | Refresh interval for the `db_replica_lag_seconds` gauge. Only registered when read replicas are configured (primary has no replay timestamp). |
 
 ## Content
@@ -216,17 +246,21 @@ override minimal (or unset) and add module paths through the extra key.
 
 ## Worker (second binary, `cpp_api_template_worker`)
 
-| Env | JSON key | Type | Default |
-|---|---|---|---|
-| `WORKER_ID` | `worker.id` | string | `worker-1` |
-| `WORKER_TYPES` | `worker.types` | csv | `default` | Queues the worker pulls from. MUST include `account_email`, `email.send`, and `webhook.deliver` or those jobs pile up undrained. |
-| `WORKER_CONCURRENCY` | `worker.concurrency` | int | `2` |
-| `WORKER_HEALTH_PORT` | `worker.health_port` | int | `9091` |
-| `WORKER_BRPOP_TIMEOUT` | `worker.brpop_timeout` | int | `5` |
+| Env | JSON key | Type | Default | Notes |
+|---|---|---|---|---|
+| `WORKER_ID` | `worker.id` | string | `worker-1` | |
+| `WORKER_TYPES` | `worker.types` | csv | all registered handler types | Queues the worker pulls from. Unset everywhere → every type with a registered handler. When you DO set it (the compose stack ships `default,account_email`; `config.json` ships `default`), it MUST include `account_email`, `email.send`, and `webhook.deliver` or those jobs pile up undrained. |
+| `WORKER_STRICT_TYPES` | `worker.strict_types` | bool | `false` | A `WORKER_TYPES` entry without a registered handler logs a warning; `true` upgrades it to a refusal to start |
+| `WORKER_CONCURRENCY` | `worker.concurrency` | int | `2` | |
+| `WORKER_HEALTH_PORT` | `worker.health_port` | int | `9091` | |
+| `WORKER_BRPOP_TIMEOUT` | `worker.brpop_timeout` | int | `5` | |
 
 ## Conventions
 
-- `csv`: comma-separated values, no spaces around commas. Empty components dropped.
+- `csv`: comma-separated values (whitespace around commas is trimmed). Empty components dropped.
+- `bool`: truthy values are exactly `true`, `1`, `yes` (`Utils::Strings::flag_true`);
+  anything else is false. The same rule applies to standalone env flags like
+  `RUN_MIGRATIONS_ONLY` and `DATABASE_REQUIRE_SECURE_PASSWORD`.
 - `enum`: invalid values fall back to the default, never throw.
 - Passwords and secrets must never be committed to `config/*.json` — use `${VAR}`
   placeholders so the checked-in file stays safe.

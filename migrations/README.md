@@ -10,24 +10,33 @@ want a worked example.
 ## Generating a new migration
 
 ```bash
-./scripts/new-migration.sh add_users_table
-# ==> Created migrations/001_add_users_table.sql
+./scripts/new-migration.sh add_users_table            # or: make new-migration SLUG=add_users_table
+# ==> Created migrations/007_add_users_table.sql      # next free NNN after the shipped 000–006
 ```
 
 The script picks the next free `NNN`, slugifies the description, and writes a
-`BEGIN; ... COMMIT;` skeleton.
+commented skeleton (`--table <name>` emits ready-to-run `CREATE TABLE` DDL for
+the `new-resource.sh` stub shape instead). Do **not** add `BEGIN`/`COMMIT`
+yourself: the runner already wraps each file in a single transaction (under an
+advisory lock) together with the `schema_migrations` bookkeeping, and an
+embedded `COMMIT` would end that transaction early. A statement that cannot
+run inside a transaction (`CREATE INDEX CONCURRENTLY`, …) opts out with a
+`-- migrate:no-transaction` marker anywhere in the file — that file is then
+applied in autocommit mode.
 
 ## Ops
 
 - `./cpp_api_template --verify-migrations` — list pending files without
-  applying (useful as a CI gate; exits 1 if any are pending).
+  applying (useful as a CI gate; exits 1 if any are pending). Wrapped by
+  `make migrate-status`.
 - `./cpp_api_template --run-migrations` — apply pending migrations and exit
   (CLI-flag form of `RUN_MIGRATIONS_ONLY=1`; equivalent to `make migrate-local`
   for the native binary).
 - `DB_MIGRATIONS_ENABLED=false` — skip running migrations on app boot
   (set this when an init container is responsible instead).
 - `RUN_MIGRATIONS_ONLY=1 ./cpp_api_template` — env-var equivalent of
-  `--run-migrations`, convenient for Helm init-containers.
+  `--run-migrations`, convenient for Helm init-containers (any of `1`, `true`,
+  `yes` counts as on).
 - `make migrate` (Docker) / `make migrate-local` (native) — wrappers around
   the above.
 

@@ -1,7 +1,7 @@
 # Operator runbook
 
 What to do when an alert fires or an incident lands. Each alert in
-`docs/prometheus-rules.yml` / the Helm `PrometheusRule` carries a
+`docker/prometheus-rules.yml` / the Helm `PrometheusRule` carries a
 `runbook_url` anchor that points here.
 
 Conventions: `make` targets assume the compose stack; in k8s substitute
@@ -12,7 +12,8 @@ Conventions: `make` targets assume the compose stack; in k8s substitute
 
 ## ApiTargetDown / WorkerTargetDown {#targetdown}
 
-Prometheus hasn't scraped the process for 2 min — it's down or wedged.
+Prometheus hasn't scraped the process for 2 min (API; 5 min for the worker) —
+it's down or wedged.
 
 1. `kubectl get pods` / `make ps` — is it crash-looping or gone?
 2. Logs: `kubectl logs <pod> --previous` / `make logs`. Look for the init
@@ -101,7 +102,7 @@ then throws — surfacing as 5xx and high p99.
 1. Which pool? The alert is labeled `pool` (primary/replica).
 2. Slow queries holding connections? Check the DB's `pg_stat_activity` and the
    `db.statement` attribute on slow `db.*` spans.
-3. Real concurrency demand? Raise `DATABASE_POOL_SIZE` (and the server's
+3. Real concurrency demand? Raise `DB_POOL_SIZE` (and the server's
    `max_connections`), or shed load. A leaked connection (active stuck high
    while traffic is idle) points at a handler that never returns its txn.
 

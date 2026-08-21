@@ -1,6 +1,6 @@
 # SLOs & alert thresholds
 
-Defines what "healthy" means so the alerts in `docs/prometheus-rules.yml` /
+Defines what "healthy" means so the alerts in `docker/prometheus-rules.yml` /
 the Helm `PrometheusRule` have a rationale, and on-call has a target rather
 than a guess. These are **starting defaults** — set yours from real traffic.
 
@@ -29,7 +29,7 @@ burn — add a multi-window burn-rate alert if you adopt strict budgeting.
 | `RetriesExhaustedSpike` | exhausted retries sustained | Downstream past retry budget | — |
 | `JobsQueueBacklog` | queue `_total` > 100 for 10m | Workers outrun by submitters | Set to your throughput headroom |
 | `DbPoolSaturationHigh` | active/size > 90% for 5m | Connections about to time out on acquire | Raise pool size first, then revisit |
-| `*TargetDown` | no scrape 2m | Process down/wedged | — |
+| `*TargetDown` | no scrape 2m (API) / 5m (worker) | Process down/wedged | — |
 
 Helm thresholds live in `values.yaml → monitoring.thresholds`; the compose
 copy is inlined in `docker/prometheus-rules.yml`. Every alert links to

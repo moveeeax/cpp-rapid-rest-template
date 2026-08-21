@@ -40,8 +40,9 @@ app under a set of config presets in `config/bench/`:
 
 ```bash
 make up                          # bring up app + Postgres + Redis
-make bench                       # all presets, default endpoint
-# or target one preset / endpoint / wrk args:
+make bench                       # one preset (P=baseline) against E=/api/v1/jobs
+make bench-all E=/healthz        # every preset against one endpoint
+# or drive the script directly with wrk args:
 ./scripts/bench.sh baseline /healthz
 ./scripts/bench.sh all /api/v1/jobs -c100 -d10s
 ```
