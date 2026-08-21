@@ -210,7 +210,6 @@ cat >"$REPO_FILE" <<EOF
 #pragma once
 
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -219,16 +218,19 @@ cat >"$REPO_FILE" <<EOF
 #include "database/Database.hpp"
 #include "domain/${ENTITY}.hpp"
 #include "repositories/CrudBase.hpp"
+#include "repositories/RepoErrors.hpp"
 #include "repositories/SqlErrors.hpp"
 
 namespace Repositories {
 
-struct Duplicate${ENTITY} : std::runtime_error {
-    Duplicate${ENTITY}() : std::runtime_error("${LOWER} already exists") {}
+// Derive from the generic repo bases so Api::with_repo_errors maps them to
+// 409 / 404 instead of a bare 500 (see RepoErrors.hpp / HandlerSupport.hpp).
+struct Duplicate${ENTITY} : ConflictError {
+    Duplicate${ENTITY}() : ConflictError("${LOWER}_exists", "a ${LOWER} with that name already exists") {}
 };
 
-struct ${ENTITY}NotFound : std::runtime_error {
-    ${ENTITY}NotFound() : std::runtime_error("${LOWER} not found") {}
+struct ${ENTITY}NotFound : NotFoundError {
+    ${ENTITY}NotFound() : NotFoundError("${LOWER}") {}
 };
 
 class ${ENTITY}Repository : public CrudBase<${ENTITY}Repository, Domain::${ENTITY}, std::string> {
@@ -249,10 +251,7 @@ ${REPO_KOWNER}
                     return Domain::${ENTITY}::from_row(r[0]);
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23505")
-                    throw Duplicate${ENTITY}{};
-            });
+            detail::throw_on<Duplicate${ENTITY}>("23505"));
     }
 
     void ${REPO_REMOVE_SIG} {
@@ -309,13 +308,12 @@ public:
     void list${ENTITY}s(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
         ${CTRL_GUARD}
         const auto page = parse_page_params(req, /*default_limit=*/50, /*max_limit=*/200);
-        Repositories::${ENTITY}Repository repo;
-        auto items = ${CTRL_LIST};
-        long total = ${CTRL_COUNT};
-        json data = json::array();
-        for (const auto& e : items)
-            data.push_back(e);
-        callback(Response::ok({{"data", data}, {"total", total}, {"limit", page.limit}, {"offset", page.offset}}));
+        with_repo_errors(callback, "list${ENTITY}s", [&] {
+            Repositories::${ENTITY}Repository repo;
+            auto items = ${CTRL_LIST};
+            long total = ${CTRL_COUNT};
+            callback(Response::paginated(to_json_array(items), total, page.limit, page.offset));
+        });
     }
 
     void create${ENTITY}(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
@@ -332,9 +330,7 @@ public:
         with_repo_errors(callback, "create${ENTITY}", [&] {
             Repositories::${ENTITY}Repository repo;
             auto created = ${CTRL_CREATE};
-            auto resp = Response::ok({{"data", json(created)}});
-            resp->setStatusCode(k201Created);
-            callback(resp);
+            callback(Response::created({{"data", json(created)}}));
         });
     }
 
@@ -342,27 +338,25 @@ public:
                       std::function<void(const HttpResponsePtr&)>&& callback,
                       const std::string& id) {
         ${CTRL_GUARD}
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+        if (!require_valid_uuid(id, callback))
             return;
-        }
-        Repositories::${ENTITY}Repository repo;
-        auto found = ${CTRL_FIND};
-        if (!found) {
-            callback(ErrorResponse::not_found("${LOWER}"));
-            return;
-        }
-        callback(Response::ok({{"data", json(*found)}}));
+        with_repo_errors(callback, "get${ENTITY}", [&] {
+            Repositories::${ENTITY}Repository repo;
+            auto found = ${CTRL_FIND};
+            if (!found) {
+                callback(ErrorResponse::not_found("${LOWER}"));
+                return;
+            }
+            callback(Response::ok({{"data", json(*found)}}));
+        });
     }
 
     void delete${ENTITY}(const HttpRequestPtr& req,
                          std::function<void(const HttpResponsePtr&)>&& callback,
                          const std::string& id) {
         ${CTRL_GUARD}
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+        if (!require_valid_uuid(id, callback))
             return;
-        }
         with_repo_errors(callback, "delete${ENTITY}", [&] {
             Repositories::${ENTITY}Repository repo;
             ${CTRL_REMOVE};
