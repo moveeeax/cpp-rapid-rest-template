@@ -131,10 +131,7 @@ build_handler_body() {
         printf '        API_REQUIRE_ADMIN(req, callback);\n'
     fi
     if [[ "$NUM_PARAMS" -eq 1 ]]; then
-        printf '        if (!is_valid_uuid(p1)) {\n'
-        printf '            callback(ErrorResponse::bad_request("invalid_id"));\n'
-        printf '            return;\n'
-        printf '        }\n'
+        printf '        if (!require_valid_uuid(p1, callback)) return;\n'
     fi
     printf '        json response = {{"message", "%s::%s — TODO"}};\n' "$NAME" "$HANDLER"
     # POST conventionally returns 201; keep the stub and its test in agreement.
