@@ -55,15 +55,18 @@ gates by construction. Hand-rolled versions usually don't.
    is major 17, the CI pin; fix: `pip install clang-format==17.0.6`)
 2. `./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
    && ./scripts/check-test-buckets.sh && ./scripts/check-version-sync.sh
-   && ./scripts/check-frontend-nginx-sync.sh` — seconds, no build
+   && ./scripts/check-frontend-nginx-sync.sh` — seconds, no build.
+   Touched a `check-*` script? Also run `./scripts/check-selftest.sh` —
+   plants 12 breakages and requires every gate to catch and name them
+   (needs helm+yq; CI runs it unconditionally as `gate-selftest`)
 3. `make lint-openapi` — spectral over `docs/openapi.yaml`
 4. `make test-quick` — cached test image, ~5 s
 5. `make test` — full rebuild + suite, ~2 min; what CI runs
 6. `make helm-lint` — only if `helm/` was touched
 7. `make ci-local` — full local reproduction of CI
 
-CI additionally runs clang-tidy, ASan+UBSan (+TSAN), gitleaks, helm-render
-and the OpenAPI-drift gate; C++ compiles in CI go through sccache backed by
+CI additionally runs clang-tidy, ASan+UBSan (+TSAN), gitleaks, helm-render,
+the OpenAPI-drift gate and the gate selftest; C++ compiles in CI go through sccache backed by
 the Actions cache. Trivy scans images in the release pipeline
 (`.github/workflows/release.yml`), not in per-PR CI.
 

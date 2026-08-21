@@ -13,7 +13,7 @@
 # '## [Unreleased]' is skipped: only headings whose bracket holds a version.
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 cmake_version="$(sed -n 's/^project(.*VERSION[[:space:]]\{1,\}\([0-9][0-9.]*\).*/\1/p' \
     "$REPO/CMakeLists.txt" | head -1)"
