@@ -8,6 +8,11 @@ map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
 
 - Full CRUD resource: `./scripts/new-resource.sh Name` — migration + DTO +
   repository + controller + registry row + OpenAPI block + integration test.
+  `--owned` = per-user rows; `--org-scoped` = per-tenant rows (requires the
+  orgs kit below).
+- Multi-tenancy starter (one-shot, NOT a runtime flag): `./scripts/add-orgs.sh`
+  — installs src/tenancy/, org guards, orgs API + migration + tests
+  (docs/ORGS.md).
 - Single endpoint: `./scripts/new-endpoint.sh FooController Get /api/v1/foo
   [--with-test] [--patch-openapi]`
 - Background job: `./scripts/new-job.sh <type>`

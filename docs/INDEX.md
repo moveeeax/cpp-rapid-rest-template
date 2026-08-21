@@ -22,6 +22,7 @@ question instead of grepping the tree.
 | [`CONVENTIONS.md`](CONVENTIONS.md) | Canonical "add a domain entity" checklist (what `new-resource.sh` follows) + what NOT to abstract |
 | [`CONFIG.md`](CONFIG.md) | Single table mapping every JSON key ↔ env var ↔ default |
 | [`TESTING.md`](TESTING.md) | Test buckets (unit/integration/api/e2e), what's covered vs not, coverage, the disabled-race note |
+| [`ORGS.md`](ORGS.md) | Multi-tenancy starter kit (`scripts/add-orgs.sh`): two role layers, fail-closed org context, claim/switch semantics, deny-by-default matrix |
 | [`UPSTREAM.md`](UPSTREAM.md) | Fork↔template sync: pulling template fixes, the backport-candidate discipline for giving generic fixes back |
 | [`BENCHMARKS.md`](BENCHMARKS.md) | How to measure latency/throughput/footprint (`make bench` + presets) + a results template |
 | [`PATTERNS-FROM-FLASK-BASE.md`](PATTERNS-FROM-FLASK-BASE.md) | Authoritative list of patterns lifted from flask-base (file-level mapping included) |
@@ -90,7 +91,8 @@ question instead of grepping the tree.
 | Script | Purpose |
 |---|---|
 | `init-project.sh` | One-shot rename of template identity (project name, registry, helm charts) |
-| `new-resource.sh` | Scaffold a FULL CRUD resource (domain + repository + controller + registry + openapi + test) per docs/CONVENTIONS.md |
+| `new-resource.sh` | Scaffold a FULL CRUD resource (domain + repository + controller + registry + openapi + test) per docs/CONVENTIONS.md; `--owned` per-user, `--org-scoped` per-tenant |
+| `add-orgs.sh` | ONE-SHOT installer of the multi-tenancy starter kit (src/tenancy/, org guards, orgs API, migration, tests) — see docs/ORGS.md |
 | `new-endpoint.sh` | Scaffold a single controller + registry row + optional test + optional OpenAPI patch |
 | `new-job.sh` | Scaffold a background-job handler that self-registers with the dispatcher (one `#include` to wire into the worker) |
 | `new-module.sh` | Scaffold a feature-module master switch (config flag + `Core::<name>_enabled()` + compose/helm/docs wiring), following the content module's on/off pattern |
