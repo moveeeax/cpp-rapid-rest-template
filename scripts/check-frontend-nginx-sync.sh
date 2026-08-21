@@ -16,7 +16,7 @@
 #      uploads in exactly one environment).
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DEV_CONF="$REPO/frontend/nginx.conf"
 HELM_CONF="$REPO/helm/cpp-frontend/templates/configmap.yaml"
 

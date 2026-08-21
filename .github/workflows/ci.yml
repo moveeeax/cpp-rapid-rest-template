@@ -155,6 +155,28 @@ jobs:
       - name: Check frontend nginx configs in sync (compose vs helm)
         run: ./scripts/check-frontend-nginx-sync.sh
 
+  gate-selftest:
+    runs-on: ubuntu-latest
+    # Proves the six check-* gates BITE: per gate, copy the subtree it reads,
+    # plant a known breakage (counted mutators; a no-op mutation is itself a
+    # failure), and require the gate to fail AND name what it found — after
+    # first PASSING the untouched copy as a control. A gate only ever run
+    # against healthy trees is indistinguishable from `exit 0` (check-test-
+    # buckets.sh once scanned only its first directory argument; a downstream
+    # gitleaks config once scanned with zero rules). Deliberately NOT
+    # path-scoped: a skipped job reports success, which is the disease this
+    # job exists to cure.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install helm + yq
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Gate selftest (12 planted breakages must be caught)
+        run: ./scripts/check-selftest.sh
+
   runtime-smoke:
     runs-on: ubuntu-latest
     # The release images (runtime / worker-runtime) were never built — let
