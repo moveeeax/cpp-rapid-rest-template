@@ -22,6 +22,12 @@ namespace Api {
 using namespace drogon;
 using json = nlohmann::json;
 
+/// Version string for status payloads: the Core-reported version once
+/// initialized, "unknown" before that (shared by /health and /).
+inline std::string version_or_unknown() {
+    return Core::is_initialized() ? Core::get().version() : std::string("unknown");
+}
+
 /**
  * @brief Health check controller
  * @details Provides liveness and readiness endpoints for Kubernetes
@@ -78,7 +84,7 @@ public:
         // what /ready (Core::health_check) gates on.
         const char* status = !critical_ok ? "unhealthy" : (any_degraded_down ? "degraded" : "healthy");
         auto resp = Response::ok({{"status", status},
-                                  {"version", Core::is_initialized() ? Core::get().version() : std::string("unknown")},
+                                  {"version", version_or_unknown()},
                                   {"timestamp", std::time(nullptr)},
                                   {"components", components}});
         resp->setStatusCode(critical_ok ? k200OK : k503ServiceUnavailable);
@@ -100,9 +106,8 @@ public:
         for (const auto& ep : get_endpoints()) {
             endpoints_json.push_back({{"method", ep.method}, {"path", ep.path}, {"description", ep.description}});
         }
-        callback(Response::ok({{"message", "C++ API Template"},
-                               {"version", Core::is_initialized() ? Core::get().version() : std::string("unknown")},
-                               {"endpoints", endpoints_json}}));
+        callback(Response::ok(
+            {{"message", "C++ API Template"}, {"version", version_or_unknown()}, {"endpoints", endpoints_json}}));
     }
 };
 

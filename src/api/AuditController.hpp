@@ -58,10 +58,7 @@ public:
         with_repo_errors(callback, "admin listAudit", [&] {
             Repositories::AuditRepository repo;
             auto page = repo.list_filtered(f, pp.limit, pp.offset);
-            json data = json::array();
-            for (const auto& entry : page.entries)
-                data.push_back(entry);
-            callback(Response::paginated(data, page.total, pp.limit, pp.offset));
+            callback(Response::paginated(to_json_array(page.entries), page.total, pp.limit, pp.offset));
         });
     }
 };

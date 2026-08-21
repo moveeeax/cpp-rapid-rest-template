@@ -6,9 +6,9 @@
 
 #pragma once
 
+#include <initializer_list>
 #include <optional>
 #include <pqxx/pqxx>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -92,10 +92,7 @@ public:
                     return Domain::Post::from_row(r[0]);
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23505")
-                    throw DuplicatePost{};
-            });
+            detail::throw_on<DuplicatePost>("23505"));
     }
 
     Domain::Post update(const std::string& id, const PostInput& in) {
@@ -123,10 +120,7 @@ public:
                     return Domain::Post::from_row(r[0]);
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23505")
-                    throw DuplicatePost{};
-            });
+            detail::throw_on<DuplicatePost>("23505"));
     }
 
     void remove(const std::string& id) {
@@ -154,9 +148,34 @@ private:
         return out;
     }
 
-    // WHERE clause for public reads. Values are inlined via the underlying
-    // pqxx transaction's esc() (TracingTxn::raw()) — pqxx has no named params
-    // and the clause shape varies per filter.
+    // Shared clause builders for the two WHERE assemblers below. Values are
+    // inlined via the underlying pqxx transaction's esc() (TracingTxn::raw())
+    // — pqxx has no named params and the clause shape varies per filter.
+
+    // Exact tag membership over the comma-joined storage.
+    template <typename Txn>
+    static std::string tag_clause(Txn& txn, const std::string& tag) {
+        return " AND (',' || tags || ',') LIKE ('%,' || '" + txn.raw().esc(escape_like(tag)) + "' || ',%')";
+    }
+
+    // Case-insensitive substring match of q over @p cols, OR-joined.
+    template <typename Txn>
+    static std::string ilike_clause(Txn& txn, const std::string& q, std::initializer_list<const char*> cols) {
+        const std::string qq = txn.raw().esc(escape_like(q));
+        std::string clause = " AND (";
+        bool first = true;
+        for (const char* col : cols) {
+            if (!first)
+                clause += " OR ";
+            first = false;
+            clause += col;
+            clause += " ILIKE '%" + qq + "%'";
+        }
+        clause += ")";
+        return clause;
+    }
+
+    // WHERE clause for public reads.
     template <typename Txn>
     static std::string public_where(Txn& txn, const PublicListFilter& f) {
         std::string w = "status = 'published'";
@@ -167,15 +186,14 @@ private:
                 w += " AND topic = '" + txn.raw().esc(f.topic) + "'";
         }
         if (!f.tag.empty())
-            w += " AND (',' || tags || ',') LIKE ('%,' || '" + txn.raw().esc(escape_like(f.tag)) + "' || ',%')";
-        if (!f.q.empty()) {
-            const std::string qq = txn.raw().esc(escape_like(f.q));
-            w += " AND (title ILIKE '%" + qq + "%' OR summary ILIKE '%" + qq + "%')";
-        }
+            w += tag_clause(txn, f.tag);
+        if (!f.q.empty())
+            w += ilike_clause(txn, f.q, {"title", "summary"});
         return w;
     }
 
-private:
+    // Admin variant: sees drafts (status filter instead of the published
+    // pin), and q additionally covers the slug.
     template <typename Txn>
     static std::string admin_where(Txn& txn, const AdminListFilter& f) {
         std::string w = "TRUE";
@@ -184,20 +202,19 @@ private:
         if (!f.topic.empty())
             w += " AND topic = '" + txn.raw().esc(f.topic) + "'";
         if (!f.tag.empty())
-            w += " AND (',' || tags || ',') LIKE ('%,' || '" + txn.raw().esc(escape_like(f.tag)) + "' || ',%')";
-        if (!f.q.empty()) {
-            const std::string qq = txn.raw().esc(escape_like(f.q));
-            w += " AND (title ILIKE '%" + qq + "%' OR slug ILIKE '%" + qq + "%' OR summary ILIKE '%" + qq + "%')";
-        }
+            w += tag_clause(txn, f.tag);
+        if (!f.q.empty())
+            w += ilike_clause(txn, f.q, {"title", "slug", "summary"});
         return w;
     }
 
 public:
     std::vector<Domain::Post> list_admin(const AdminListFilter& f, int limit, int offset) {
         return Database::get().execute_read([&](auto& txn) {
-            auto r = txn.exec(std::string("SELECT ") + kColumns + " FROM posts WHERE " + admin_where(txn, f) +
-                              " ORDER BY created_at DESC LIMIT " + std::to_string(limit) + " OFFSET " +
-                              std::to_string(offset));
+            auto r = txn.exec_params(std::string("SELECT ") + kColumns + " FROM posts WHERE " + admin_where(txn, f) +
+                                         " ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                                     limit,
+                                     offset);
             std::vector<Domain::Post> out;
             out.reserve(r.size());
             for (const auto& row : r)
@@ -219,12 +236,13 @@ public:
     // body, matching the frontend's old readMins() formula.
     std::vector<Domain::PostCard> list_published_cards(const PublicListFilter& f, int limit, int offset) {
         return Database::get().execute_read([&](auto& txn) {
-            auto r = txn.exec(
+            auto r = txn.exec_params(
                 "SELECT slug, title, summary, topic, tags, published_at, "
                 "GREATEST(1, CEIL(array_length(regexp_split_to_array(trim(body), '\\s+'), 1)::numeric / 200))::int "
                 "AS read_mins FROM posts WHERE " +
-                public_where(txn, f) + " ORDER BY published_at DESC, id DESC LIMIT " + std::to_string(limit) +
-                " OFFSET " + std::to_string(offset));
+                    public_where(txn, f) + " ORDER BY published_at DESC, id DESC LIMIT $1 OFFSET $2",
+                limit,
+                offset);
             std::vector<Domain::PostCard> out;
             out.reserve(r.size());
             for (const auto& row : r)

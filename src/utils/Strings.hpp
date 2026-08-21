@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -95,6 +96,30 @@ inline bool path_is_public(const std::unordered_set<std::string>& public_paths, 
         }
     }
     return false;
+}
+
+/// Canonical truthy set for boolean flags: "true" / "1" / "yes". Shared by
+/// Config's env/bool parsing and the direct getenv checks so the two paths
+/// can't drift on what counts as "on".
+inline bool flag_true(std::string_view value) {
+    return value == "true" || value == "1" || value == "yes";
+}
+
+/// True iff env var @p name is set to a truthy value (see flag_true).
+inline bool env_flag_true(const char* name) {
+    const char* value = std::getenv(name);
+    return value != nullptr && flag_true(value);
+}
+
+/// Join @p v with @p sep between elements ("a,b,c" for sep ",").
+inline std::string join(const std::vector<std::string>& v, const char* sep) {
+    std::string out;
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (i > 0)
+            out += sep;
+        out += v[i];
+    }
+    return out;
 }
 
 /**

@@ -14,7 +14,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <optional>
 #include <string>
 
@@ -27,7 +26,6 @@
 #include "api/Guards.hpp"
 #include "api/HandlerSupport.hpp"
 #include "api/Validation.hpp"
-#include "cache/Cache.hpp"
 #include "database/Database.hpp"
 #include "domain/User.hpp"
 #include "email/AccountEmails.hpp"
@@ -36,7 +34,6 @@
 #include "security/Password.hpp"
 #include "security/SessionStore.hpp"
 #include "security/Tokens.hpp"
-#include "utils/Config.hpp"
 #include "utils/Crypto.hpp"
 #include "utils/ErrorResponse.hpp"
 
@@ -168,16 +165,9 @@ public:
     void applyReset(const HttpRequestPtr& req,
                     std::function<void(const HttpResponsePtr&)>&& callback,
                     const std::string& token) {
-        json body;
-        if (!Validation::parse_body(req, body, callback))
+        auto body = parse_new_password_body(req, callback);
+        if (!body)
             return;
-        Validation::Errors errs;
-        Validation::require(errs, body, "new_password");
-        Validation::string_length(errs, body, "new_password", Validation::kPasswordMinLen, Validation::kPasswordMaxLen);
-        if (errs.any()) {
-            callback(Validation::response_400(errs));
-            return;
-        }
         auto vr = Security::Tokens::verify(secret(), token, Security::Tokens::Purpose::ResetPassword);
         if (!vr.ok) {
             callback(ErrorResponse::bad_request("invalid_token", "Reset link is invalid or has expired"));
@@ -191,7 +181,7 @@ public:
         }
         with_repo_errors(callback, "applyReset", [&] {
             Repositories::UserRepository repo;
-            const std::string new_hash = Security::Password::hash(body["new_password"].get<std::string>());
+            const std::string new_hash = Security::Password::hash((*body)["new_password"].get<std::string>());
             repo.update_password_hash(vr.sub, new_hash);
             // Evict every existing session — a reset must lock out anyone
             // holding an old refresh token (incl. an attacker who triggered
@@ -224,16 +214,10 @@ public:
             return;
         }
         try {
-            Repositories::UserRepository repo;
-            auto user = repo.find(principal->subject);
-            if (!user || !user->password_hash) {
-                callback(ErrorResponse::unauthorized("invalid_credentials"));
+            auto user = verify_password_or_401(
+                principal->subject, body["password"].get<std::string>(), "Wrong password", callback);
+            if (!user)
                 return;
-            }
-            if (!Security::Password::verify(body["password"].get<std::string>(), *user->password_hash)) {
-                callback(ErrorResponse::unauthorized("invalid_credentials", "Wrong password"));
-                return;
-            }
             const std::string new_email = body["new_email"].get<std::string>();
             Email::AccountEmails::send_change_email(*user, new_email);
             callback(Response::ok({{"message", "Confirmation email sent to the new address."}}));
@@ -270,8 +254,7 @@ public:
             Repositories::UserRepository repo;
             auto taken = repo.find_by_email(new_email);
             if (taken && taken->id != vr.sub) {
-                callback(ErrorResponse::make(
-                    {drogon::k409Conflict, "email_taken", "That email address is already in use", nlohmann::json{}}));
+                callback(ErrorResponse::conflict("email_taken", "That email address is already in use"));
                 return;
             }
         }
@@ -296,16 +279,9 @@ public:
     void joinFromInvite(const HttpRequestPtr& req,
                         std::function<void(const HttpResponsePtr&)>&& callback,
                         const std::string& token) {
-        json body;
-        if (!Validation::parse_body(req, body, callback))
+        auto body = parse_new_password_body(req, callback);
+        if (!body)
             return;
-        Validation::Errors errs;
-        Validation::require(errs, body, "new_password");
-        Validation::string_length(errs, body, "new_password", Validation::kPasswordMinLen, Validation::kPasswordMaxLen);
-        if (errs.any()) {
-            callback(Validation::response_400(errs));
-            return;
-        }
         auto vr = Security::Tokens::verify(secret(), token, Security::Tokens::Purpose::Invite);
         if (!vr.ok) {
             callback(ErrorResponse::bad_request("invalid_token", "Invitation link is invalid or has expired"));
@@ -313,7 +289,7 @@ public:
         }
         with_repo_errors(callback, "joinFromInvite", [&] {
             Repositories::UserRepository repo;
-            const std::string new_hash = Security::Password::hash(body["new_password"].get<std::string>());
+            const std::string new_hash = Security::Password::hash((*body)["new_password"].get<std::string>());
             // redeem_invite is a DB-level one-shot (only matches a still-pending
             // invite), so a replayed link can't reset an active account — no
             // need for the fail-open Redis guard here. Doing the write first
@@ -355,16 +331,13 @@ public:
             return;
         }
         try {
+            auto user = verify_password_or_401(principal->subject,
+                                               body["old_password"].get<std::string>(),
+                                               "Original password is incorrect",
+                                               callback);
+            if (!user)
+                return;
             Repositories::UserRepository repo;
-            auto user = repo.find(principal->subject);
-            if (!user || !user->password_hash) {
-                callback(ErrorResponse::unauthorized("invalid_credentials"));
-                return;
-            }
-            if (!Security::Password::verify(body["old_password"].get<std::string>(), *user->password_hash)) {
-                callback(ErrorResponse::unauthorized("invalid_credentials", "Original password is incorrect"));
-                return;
-            }
             const std::string new_hash = Security::Password::hash(body["new_password"].get<std::string>());
             repo.update_password_hash(user->id, new_hash);
             // Revoke other sessions on password change (the current client
@@ -379,7 +352,54 @@ public:
     }
 
 private:
-    static std::string secret() { return Security::Auth::get().config().jwt_secret; }
+    static const std::string& secret() { return Security::Auth::get().config().jwt_secret; }
+
+    /**
+     * @brief Parse the request body and validate its "new_password" field
+     *        (required + kPasswordMinLen..kPasswordMaxLen) — the shared
+     *        preamble of applyReset and joinFromInvite. Responds via
+     *        @p callback itself and returns nullopt on any failure.
+     */
+    static std::optional<json> parse_new_password_body(const HttpRequestPtr& req,
+                                                       std::function<void(const HttpResponsePtr&)>& callback) {
+        json body;
+        if (!Validation::parse_body(req, body, callback))
+            return std::nullopt;
+        Validation::Errors errs;
+        Validation::require(errs, body, "new_password");
+        Validation::string_length(errs, body, "new_password", Validation::kPasswordMinLen, Validation::kPasswordMaxLen);
+        if (errs.any()) {
+            callback(Validation::response_400(errs));
+            return std::nullopt;
+        }
+        return body;
+    }
+
+    /**
+     * @brief Load the user behind @p subject and verify @p password against its
+     *        stored hash — the shared preamble of requestChangeEmail and
+     *        changePassword. On a missing user/hash responds 401
+     *        invalid_credentials (no message); on a failed verify responds 401
+     *        invalid_credentials with @p wrong_password_message (the two
+     *        callers word it differently). Returns nullopt after responding.
+     */
+    static std::optional<Domain::User> verify_password_or_401(
+        const std::string& subject,
+        const std::string& password,
+        const std::string& wrong_password_message,
+        const std::function<void(const HttpResponsePtr&)>& callback) {
+        Repositories::UserRepository repo;
+        auto user = repo.find(subject);
+        if (!user || !user->password_hash) {
+            callback(ErrorResponse::unauthorized("invalid_credentials"));
+            return std::nullopt;
+        }
+        if (!Security::Password::verify(password, *user->password_hash)) {
+            callback(ErrorResponse::unauthorized("invalid_credentials", wrong_password_message));
+            return std::nullopt;
+        }
+        return user;
+    }
 
     /**
      * @brief Atomically consume a one-shot token: returns true the FIRST time

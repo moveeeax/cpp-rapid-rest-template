@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <optional>
 #include <string>
 
@@ -69,10 +68,7 @@ public:
             Repositories::UserRepository repo;
             auto users = repo.list(page.limit, page.offset);
             long total = repo.count();
-            json data = json::array();
-            for (const auto& u : users)
-                data.push_back(u);
-            callback(Response::paginated(data, total, page.limit, page.offset));
+            callback(Response::paginated(to_json_array(users), total, page.limit, page.offset));
         });
     }
 
@@ -91,16 +87,9 @@ public:
             return;
         }
         // role_id optional — defaults to "User" role.
-        std::optional<int> requested_role_id;
-        if (body.contains("role_id") && body["role_id"].is_number_integer())
-            requested_role_id = body["role_id"].get<int>();
-
-        Repositories::RoleRepository roles;
-        auto role = requested_role_id ? roles.find(*requested_role_id) : roles.find_default();
-        if (!role) {
-            callback(ErrorResponse::bad_request("invalid_role", "Role does not exist"));
+        auto role = resolve_role(body, "Role does not exist", callback);
+        if (!role)
             return;
-        }
 
         with_repo_errors(callback, "admin createUser", [&] {
             const std::string hash = Security::Password::hash(body["password"].get<std::string>());
@@ -133,15 +122,9 @@ public:
             callback(Validation::response_400(errs));
             return;
         }
-        std::optional<int> requested_role_id;
-        if (body.contains("role_id") && body["role_id"].is_number_integer())
-            requested_role_id = body["role_id"].get<int>();
-        Repositories::RoleRepository roles;
-        auto role = requested_role_id ? roles.find(*requested_role_id) : roles.find_default();
-        if (!role) {
-            callback(ErrorResponse::bad_request("invalid_role"));
+        auto role = resolve_role(body, /*invalid_message=*/"", callback);
+        if (!role)
             return;
-        }
 
         with_repo_errors(callback, "admin inviteUser", [&] {
             Repositories::UserRepository users;
@@ -164,10 +147,8 @@ public:
                  std::function<void(const HttpResponsePtr&)>&& callback,
                  const std::string& id) {
         API_REQUIRE_ADMIN(req, callback);
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_id", "Malformed user id"));
+        if (!require_user_id(id, callback))
             return;
-        }
         with_repo_errors(callback, "admin getUser", [&] {
             Repositories::UserRepository repo;
             auto user = repo.find(id);
@@ -183,10 +164,8 @@ public:
                     std::function<void(const HttpResponsePtr&)>&& callback,
                     const std::string& id) {
         API_REQUIRE_ADMIN(req, callback);
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_id", "Malformed user id"));
+        if (!require_user_id(id, callback))
             return;
-        }
         json body;
         if (!Validation::parse_body(req, body, callback))
             return;
@@ -217,12 +196,13 @@ public:
                         "self_role_change", "You cannot change the role of your own account; ask another admin"));
                     return;
                 }
+                const int requested_role_id = body["role_id"].get<int>();
                 Repositories::RoleRepository roles;
-                if (!roles.find(body["role_id"].get<int>())) {
+                if (!roles.find(requested_role_id)) {
                     callback(ErrorResponse::bad_request("invalid_role"));
                     return;
                 }
-                new_role_id = body["role_id"].get<int>();
+                new_role_id = requested_role_id;
             }
             const auto first_name = Validation::opt_string(body, "first_name");
             const auto last_name = Validation::opt_string(body, "last_name");
@@ -249,10 +229,8 @@ public:
                     std::function<void(const HttpResponsePtr&)>&& callback,
                     const std::string& id) {
         API_REQUIRE_ADMIN(req, callback);
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_id", "Malformed user id"));
+        if (!require_user_id(id, callback))
             return;
-        }
         // Self-protection — flask-base parity: app/admin/views.py
         // delete_user explicitly refuses to delete current_user.
         auto principal = Security::Auth::principal_of(req);
@@ -277,10 +255,7 @@ public:
             // high cap so the list isn't silently truncated (was unbounded
             // before the CrudBase refactor).
             auto roles = repo.list(1000);
-            json data = json::array();
-            for (const auto& r : roles)
-                data.push_back(r);
-            callback(Response::list(data));
+            callback(Response::list(to_json_array(roles)));
         });
     }
 
@@ -318,11 +293,10 @@ public:
                     std::function<void(const HttpResponsePtr&)>&& callback,
                     const std::string& id_str) {
         API_REQUIRE_ADMIN(req, callback);
-        const int id = parse_int(id_str, -1);
-        if (id <= 0) {
-            callback(ErrorResponse::bad_request("invalid_id"));
+        const auto role_id = require_role_id(id_str, callback);
+        if (!role_id)
             return;
-        }
+        const int id = *role_id;
         json body;
         if (!Validation::parse_body(req, body, callback))
             return;
@@ -352,11 +326,10 @@ public:
                     std::function<void(const HttpResponsePtr&)>&& callback,
                     const std::string& id_str) {
         API_REQUIRE_ADMIN(req, callback);
-        const int id = parse_int(id_str, -1);
-        if (id <= 0) {
-            callback(ErrorResponse::bad_request("invalid_id"));
+        const auto role_id = require_role_id(id_str, callback);
+        if (!role_id)
             return;
-        }
+        const int id = *role_id;
         with_repo_errors(callback, "admin deleteRole", [&] {
             Repositories::RoleRepository repo;
             // Self-protection: refuse to delete the default role —
@@ -379,6 +352,51 @@ private:
     static std::string actor_of(const HttpRequestPtr& req) {
         auto p = Security::Auth::principal_of(req);
         return p ? p->subject : std::string{};
+    }
+
+    /**
+     * @brief Resolve the optional "role_id" in @p body (defaults to the
+     *        default role when absent) — the shared preamble of createUser and
+     *        inviteUser. On an unknown role responds 400 invalid_role with
+     *        @p invalid_message (the two callers word it differently; "" omits
+     *        the message key) and returns nullopt.
+     */
+    static std::optional<Domain::Role> resolve_role(const json& body,
+                                                    const std::string& invalid_message,
+                                                    const std::function<void(const HttpResponsePtr&)>& callback) {
+        std::optional<int> requested_role_id;
+        if (body.contains("role_id") && body["role_id"].is_number_integer())
+            requested_role_id = body["role_id"].get<int>();
+        Repositories::RoleRepository roles;
+        auto role = requested_role_id ? roles.find(*requested_role_id) : roles.find_default();
+        if (!role) {
+            callback(ErrorResponse::bad_request("invalid_role", invalid_message));
+            return std::nullopt;
+        }
+        return role;
+    }
+
+    /// Reject a malformed user-id path param with the admin surface's
+    /// published 400 shape — code "invalid_id" (NOT Guards' "invalid_uuid").
+    /// Returns false after responding — callers
+    /// `if (!require_user_id(id, callback)) return;`.
+    static bool require_user_id(const std::string& id, const std::function<void(const HttpResponsePtr&)>& callback) {
+        if (is_valid_uuid(id))
+            return true;
+        callback(ErrorResponse::bad_request("invalid_id", "Malformed user id"));
+        return false;
+    }
+
+    /// Parse a role-id path param; a non-positive or non-numeric value gets
+    /// the shared bare 400 invalid_id. Returns nullopt after responding.
+    static std::optional<int> require_role_id(const std::string& id_str,
+                                              const std::function<void(const HttpResponsePtr&)>& callback) {
+        const int id = parse_int(id_str, -1);
+        if (id <= 0) {
+            callback(ErrorResponse::bad_request("invalid_id"));
+            return std::nullopt;
+        }
+        return id;
     }
 };
 

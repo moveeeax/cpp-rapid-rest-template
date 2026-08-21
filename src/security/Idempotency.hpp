@@ -14,15 +14,13 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <cctype>
-#include <cstdint>
-#include <cstring>
+#include <chrono>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 
 #include <drogon/HttpRequest.h>
@@ -178,6 +176,16 @@ inline drogon::HttpResponsePtr make_replay_response(const json& stored) {
     return resp;
 }
 
+// Stored entry exists for this key: 422 if the request body hash differs from
+// the one recorded on first use (client bug), replay of the cached response
+// otherwise. Shared by the cache-hit path and the lock-contention re-read.
+inline drogon::HttpResponsePtr conflict_or_replay(const json& stored, const std::string& body_hash) {
+    if (stored.value("req_hash", "") != body_hash) {
+        return make_conflict_response();
+    }
+    return make_replay_response(stored);
+}
+
 // Read a stored idempotency entry. Returns nullopt on miss, corrupt payload,
 // or Redis error — callers fail open in all these cases. A corrupt entry is
 // deleted so the next attempt stores fresh state.
@@ -215,7 +223,9 @@ inline drogon::HttpResponsePtr pre_handle(const drogon::HttpRequestPtr& req) {
         return {};
     }
 
-    std::string body(req->body());
+    // View, not copy — the body can be up to max_body_bytes (1 MiB default)
+    // and sha256_hex takes a string_view.
+    const std::string_view body = req->body();
     if (body.size() > config().max_body_bytes) {
         return ErrorResponse::payload_too_large("body_too_large_for_idempotency");
     }
@@ -235,10 +245,7 @@ inline drogon::HttpResponsePtr pre_handle(const drogon::HttpRequestPtr& req) {
     const std::string ck = detail::cache_key(principal, std::string(req->getMethodString()), req->path(), key);
 
     if (auto stored = detail::read_stored_entry(ck)) {
-        if (stored->value("req_hash", "") != body_hash) {
-            return detail::make_conflict_response();
-        }
-        return detail::make_replay_response(*stored);
+        return detail::conflict_or_replay(*stored, body_hash);
     }
 
     // Cache miss. Take a SET NX lock to serialize concurrent first-time
@@ -262,10 +269,7 @@ inline drogon::HttpResponsePtr pre_handle(const drogon::HttpRequestPtr& req) {
         // replay instead of rejecting. This race is narrow but worth
         // handling — turns a 409 into a 200 for a very common retry pattern.
         if (auto stored = detail::read_stored_entry(ck)) {
-            if (stored->value("req_hash", "") != body_hash) {
-                return detail::make_conflict_response();
-            }
-            return detail::make_replay_response(*stored);
+            return detail::conflict_or_replay(*stored, body_hash);
         }
         return detail::make_in_progress_response(config().lock_ttl_sec);
     }
@@ -339,11 +343,13 @@ inline void post_handle(const drogon::HttpRequestPtr& req, const drogon::HttpRes
     // Refuse to cache oversized responses — Redis memory is precious and
     // a 10MiB file download with 24h TTL would eat it. Drop the entry
     // silently (with a warn log); the client will re-execute on retry.
-    std::string body(resp->getBody());
-    if (body.size() > config().max_response_bytes) {
+    // Size check on a view first — the body is only copied below once it is
+    // certain to go into the cache entry.
+    const std::string_view body_view = resp->getBody();
+    if (body_view.size() > config().max_response_bytes) {
         spdlog::warn("idempotency: response at {} is {}KiB, exceeds cap {}KiB — not caching",
                      ck,
-                     body.size() / 1024,
+                     body_view.size() / 1024,
                      config().max_response_bytes / 1024);
         return;
     }
@@ -367,6 +373,7 @@ inline void post_handle(const drogon::HttpRequestPtr& req, const drogon::HttpRes
         std::string ct = std::string(resp->getHeader("content-type"));
         if (ct.empty())
             ct = "application/json";
+        std::string body(body_view);
         json entry = {{"req_hash", body_hash},
                       {"status", status},
                       {"content_type", ct},

@@ -15,7 +15,6 @@
 
 #include <optional>
 #include <pqxx/pqxx>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -69,8 +68,18 @@ public:
      *        so replica lag can't return a stale row or a spurious "not found".
      */
     std::optional<Domain::User> find(const std::string& id, bool from_primary = false) {
+        return find_by_("u.id", id, from_primary);
+    }
+
+    std::optional<Domain::User> find_by_email(const std::string& email) { return find_by_("u.email", email); }
+
+private:
+    /// Shared single-row loader behind find / find_by_email: same SELECT,
+    /// only the WHERE column differs. @p col is a trusted compile-time
+    /// column name, never user input.
+    std::optional<Domain::User> find_by_(const char* col, const std::string& value, bool from_primary = false) {
         auto query = [&](auto& txn) -> std::optional<Domain::User> {
-            auto r = txn.exec_params(std::string(kSelectWithRole) + "WHERE u.id = $1", id);
+            auto r = txn.exec_params(std::string(kSelectWithRole) + "WHERE " + col + " = $1", value);
             if (r.empty())
                 return std::nullopt;
             return user_with_role_from_row(r[0]);
@@ -78,15 +87,7 @@ public:
         return from_primary ? Database::get().execute_read_primary(query) : Database::get().execute_read(query);
     }
 
-    std::optional<Domain::User> find_by_email(const std::string& email) {
-        return Database::get().execute_read([&](auto& txn) -> std::optional<Domain::User> {
-            auto r = txn.exec_params(std::string(kSelectWithRole) + "WHERE u.email = $1", email);
-            if (r.empty())
-                return std::nullopt;
-            return user_with_role_from_row(r[0]);
-        });
-    }
-
+public:
     std::vector<Domain::User> list(int limit = 100, int offset = 0) {
         return Database::get().execute_read([&](auto& txn) {
             auto r = txn.exec_params(
@@ -107,9 +108,9 @@ public:
      *                      where the user sets their password later.
      */
     Domain::User create(const std::string& email,
-                        std::optional<std::string> password_hash,
-                        std::optional<std::string> first_name,
-                        std::optional<std::string> last_name,
+                        const std::optional<std::string>& password_hash,
+                        const std::optional<std::string>& first_name,
+                        const std::optional<std::string>& last_name,
                         int role_id,
                         bool confirmed = false) {
         return detail::translate_sql(
@@ -131,10 +132,7 @@ public:
                     return Domain::User::from_row(r[0]);
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23505")
-                    throw DuplicateEmail{};
-            });
+            detail::throw_on<DuplicateEmail>("23505"));
     }
 
     void update_password_hash(const std::string& id, const std::string& new_hash) {
@@ -196,32 +194,7 @@ public:
                     return 0;
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23505")
-                    throw DuplicateEmail{};
-            });
-    }
-
-    /**
-     * @brief Update first/last name. Pass nullopt to keep a field's current
-     *        value (COALESCE). Throws UserNotFound if the row is gone.
-     */
-    void update_names(const std::string& id,
-                      std::optional<std::string> first_name,
-                      std::optional<std::string> last_name) {
-        Database::get().execute_write([&](auto& txn) {
-            auto r = txn.exec_params(
-                "UPDATE users SET "
-                "  first_name = COALESCE($1, first_name), "
-                "  last_name  = COALESCE($2, last_name) "
-                "WHERE id = $3 RETURNING id",
-                first_name,
-                last_name,
-                id);
-            if (r.empty())
-                throw UserNotFound{};
-            return 0;
-        });
+            detail::throw_on<DuplicateEmail>("23505"));
     }
 
     /**
@@ -233,10 +206,10 @@ public:
      *        single-field mutators.
      */
     void admin_update(const std::string& id,
-                      std::optional<std::string> email,
+                      const std::optional<std::string>& email,
                       std::optional<int> role_id,
-                      std::optional<std::string> first_name,
-                      std::optional<std::string> last_name) {
+                      const std::optional<std::string>& first_name,
+                      const std::optional<std::string>& last_name) {
         detail::translate_sql(
             [&] {
                 return Database::get().execute_write([&](auto& txn) {
@@ -257,10 +230,7 @@ public:
                     return 0;
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23505")
-                    throw DuplicateEmail{};
-            });
+            detail::throw_on<DuplicateEmail>("23505"));
     }
 
     void change_role(const std::string& id, int new_role_id) {

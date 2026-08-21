@@ -9,7 +9,6 @@
 
 #include <optional>
 #include <pqxx/pqxx>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -90,10 +89,7 @@ public:
                     return Domain::Role::from_row(r[0]);
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23505")
-                    throw DuplicateRole{};
-            });
+            detail::throw_on<DuplicateRole>("23505"));
     }
 
     /**
@@ -128,10 +124,7 @@ public:
                     return Domain::Role::from_row(r[0]);
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23505")
-                    throw DuplicateRole{};
-            });
+            detail::throw_on<DuplicateRole>("23505"));
     }
 
     /**
@@ -149,10 +142,7 @@ public:
                     return 0;
                 });
             },
-            [](std::string_view ss) {
-                if (ss == "23503")
-                    throw RoleInUse{};
-            });
+            detail::throw_on<RoleInUse>("23503"));
     }
 };
 

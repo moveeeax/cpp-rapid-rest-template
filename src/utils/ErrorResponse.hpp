@@ -42,11 +42,8 @@ inline drogon::HttpResponsePtr make(Error e) {
     json body = {{"error", e.code}, {"status", static_cast<int>(e.status)}};
     if (!e.message.empty())
         body["message"] = std::move(e.message);
-    if (e.extra.is_object()) {
-        for (auto it = e.extra.begin(); it != e.extra.end(); ++it) {
-            body[it.key()] = it.value();
-        }
-    }
+    if (e.extra.is_object())
+        body.update(e.extra);
     auto resp = drogon::HttpResponse::newHttpResponse();
     resp->setStatusCode(e.status);
     resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);

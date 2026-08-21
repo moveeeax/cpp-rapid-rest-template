@@ -10,13 +10,13 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <pqxx/pqxx>
 #include <queue>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <opentelemetry/trace/provider.h>
@@ -99,15 +99,21 @@ public:
     TxnT& raw() { return txn_; }
 
 private:
+    static constexpr size_t kMaxAttrLen = 2048;
+
     void record_(const std::string& q) {
         ++count_;
+        // Once the buffer is past the truncation limit the first kMaxAttrLen
+        // characters — the only ones truncated_() emits — are frozen, so
+        // further concatenation would only burn memory. Keep counting.
+        if (statements_.size() > kMaxAttrLen)
+            return;
         if (!statements_.empty())
             statements_ += "; ";
         statements_ += q;
     }
 
     std::string truncated_() const {
-        constexpr size_t kMaxAttrLen = 2048;
         if (statements_.size() <= kMaxAttrLen)
             return statements_;
         return statements_.substr(0, kMaxAttrLen) + "…";
@@ -445,8 +451,7 @@ public:
         detail::AutoSpan _span(span_name, pool_label);
         // Strip the "db." prefix for the metric op label, but only if it's
         // actually there — don't blindly skip 3 chars (UB on a shorter name).
-        const char* op_label =
-            (span_name[0] == 'd' && span_name[1] == 'b' && span_name[2] == '.') ? span_name + 3 : span_name;
+        const char* op_label = std::string_view{span_name}.starts_with("db.") ? span_name + 3 : span_name;
         inc_query_metric_(op_label, pool_label);
         return Retry::run(
             [&] {
@@ -531,18 +536,7 @@ public:
     /// borrower. Most callers want execute_write/execute_read instead.
     template <typename Func>
     auto with_primary_connection(Func&& func) -> decltype(func(std::declval<pqxx::connection&>())) {
-        auto& pool = *primary_pool_or_throw_();
-        PooledConnection conn(pool);
-        struct GuardRestore {
-            ConnectionPool& p;
-            pqxx::connection& c;
-            ~GuardRestore() {
-                try {
-                    p.reapply_session_guards(c);
-                } catch (...) {}
-            }
-        } restore{pool, *conn};
-        return func(*conn);
+        return with_raw_connection_(*primary_pool_or_throw_(), std::forward<Func>(func));
     }
 
     /// Replica twin of with_primary_connection: borrow a connection from the
@@ -554,18 +548,7 @@ public:
     /// configured, same as execute_read's replica path.
     template <typename Func>
     auto with_replica_connection(Func&& func) -> decltype(func(std::declval<pqxx::connection&>())) {
-        auto& pool = replica_pool_or_throw_();
-        PooledConnection conn(pool);
-        struct GuardRestore {
-            ConnectionPool& p;
-            pqxx::connection& c;
-            ~GuardRestore() {
-                try {
-                    p.reapply_session_guards(c);
-                } catch (...) {}
-            }
-        } restore{pool, *conn};
-        return func(*conn);
+        return with_raw_connection_(replica_pool_or_throw_(), std::forward<Func>(func));
     }
 
     /**
@@ -585,11 +568,7 @@ public:
     template <typename Func>
     auto execute_read(Func&& func) -> decltype(func(std::declval<detail::TracingTxn<pqxx::read_transaction>&>())) {
         if (replica_pools_.empty()) {
-            return execute_with_<pqxx::read_transaction>(*primary_pool_or_throw_(),
-                                                         &Retry::is_transient_pqxx_read,
-                                                         "db.read",
-                                                         "primary",
-                                                         std::forward<Func>(func));
+            return execute_read_primary(std::forward<Func>(func));
         }
         // Replica path with a one-shot primary fallback: if the replica
         // fails past the retry budget mid-flight, a read must degrade to
@@ -601,15 +580,29 @@ public:
                 replica_pool_or_throw_(), &Retry::is_transient_pqxx_read, "db.read", "replica", func);
         } catch (const std::exception& e) {
             spdlog::warn("execute_read via replica failed ({}); falling back to primary", e.what());
-            return execute_with_<pqxx::read_transaction>(*primary_pool_or_throw_(),
-                                                         &Retry::is_transient_pqxx_read,
-                                                         "db.read",
-                                                         "primary",
-                                                         std::forward<Func>(func));
+            return execute_read_primary(std::forward<Func>(func));
         }
     }
 
 private:
+    /// Shared body of with_primary_connection / with_replica_connection:
+    /// borrow a raw connection from @p pool, re-applying the pool's session
+    /// guards (statement_timeout) when @p func returns — even on throw.
+    template <typename Func>
+    auto with_raw_connection_(ConnectionPool& pool, Func&& func) -> decltype(func(std::declval<pqxx::connection&>())) {
+        PooledConnection conn(pool);
+        struct GuardRestore {
+            ConnectionPool& p;
+            pqxx::connection& c;
+            ~GuardRestore() {
+                try {
+                    p.reapply_session_guards(c);
+                } catch (...) {}
+            }
+        } restore{pool, *conn};
+        return func(*conn);
+    }
+
     ConnectionPool* primary_pool_or_throw_() {
         if (!initialized_ || !primary_pool_)
             throw std::runtime_error("Database not initialized");

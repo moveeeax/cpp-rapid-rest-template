@@ -16,6 +16,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -59,9 +60,7 @@ inline void check_password_value(const std::string& password) {
     if (kWeak.count(password) == 0)
         return;
 
-    const char* enforce = std::getenv("DATABASE_REQUIRE_SECURE_PASSWORD");
-    const bool require_secure = enforce != nullptr && (std::string(enforce) == "true" || std::string(enforce) == "1" ||
-                                                       std::string(enforce) == "yes");
+    const bool require_secure = Utils::Strings::env_flag_true("DATABASE_REQUIRE_SECURE_PASSWORD");
     const std::string msg =
         "Database password is empty or matches a known-weak default — set DATABASE_PASSWORD "
         "to a strong secret. Set DATABASE_REQUIRE_SECURE_PASSWORD=true to make this fatal.";
@@ -241,6 +240,29 @@ private:
         });
     }
 
+    // Shared JSON fallback for the env-first string lists (replica URLs,
+    // Kafka topics): walk @p path segments with at() so ANY missing segment
+    // lands in the same catch — identical semantics to the per-call
+    // try/catch blocks this replaces (including keeping elements already
+    // appended before a mid-array conversion failure).
+    // Returns false when the walk/conversion threw, so callers can apply
+    // their own default. (read_sentinels_ stays separate: it reads
+    // host/port PAIRS, not strings.)
+    static bool read_string_array_(Config::AppConfig& cfg,
+                                   std::initializer_list<const char*> path,
+                                   std::vector<std::string>& out) {
+        try {
+            const nlohmann::json* node = &cfg.get_json();
+            for (const char* segment : path)
+                node = &node->at(segment);
+            for (const auto& v : *node)
+                out.push_back(v.get<std::string>());
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
     // DATABASE_REPLICA_URLS (env) is preferred for container deployments;
     // config JSON is a fallback for local dev where setting env is annoying.
     static std::vector<std::string> read_replicas_(Config::AppConfig& cfg) {
@@ -269,11 +291,7 @@ private:
                 replicas.push_back(Utils::Pg::make_conninfo(h, port, user, name, password));
             return replicas;
         }
-        try {
-            auto replicas_json = cfg.get_json().at("database").at("replicas");
-            for (const auto& r : replicas_json)
-                replicas.push_back(r.get<std::string>());
-        } catch (...) {}
+        read_string_array_(cfg, {"database", "replicas"}, replicas);
         return replicas;
     }
 
@@ -400,13 +418,8 @@ private:
 
     static std::vector<std::string> read_kafka_topics_(Config::AppConfig& cfg) {
         std::vector<std::string> topics;
-        try {
-            auto node = cfg.get_json().at("messaging").at("kafka").at("consumer").at("topics");
-            for (const auto& t : node)
-                topics.push_back(t.get<std::string>());
-        } catch (...) {
+        if (!read_string_array_(cfg, {"messaging", "kafka", "consumer", "topics"}, topics))
             topics.push_back("default_topic");
-        }
         return topics;
     }
 
@@ -437,27 +450,32 @@ private:
         Security::Idempotency::initialize();
     }
 
-    // Registers jobs_dlq_depth as a Prometheus gauge, labeled by job type
-    // so operators can spot which queue specifically is clogged. The
-    // special label value `_total` carries the aggregate across every
-    // type for single-stat widgets. Refreshed every N seconds from Redis.
-    static void register_dlq_metric_(Config::AppConfig& cfg) {
+    // Shared registrar for the two jobs depth gauges (DLQ + waiting queue):
+    // identical bookkeeping over a different Redis keyspace. Registers
+    // @p gauge_name as a Prometheus gauge, labeled by job type (special label
+    // value `_total` carries the aggregate across every type for single-stat
+    // widgets), refreshed every N seconds from Redis via @p depth_fn.
+    using DepthFn = std::unordered_map<std::string, long> (*)();
+    static void register_depth_metric_(Config::AppConfig& cfg,
+                                       const char* gauge_name,
+                                       const char* gauge_help,
+                                       const char* refresh_conf_key,
+                                       const char* refresh_env_var,
+                                       const char* task_name,
+                                       DepthFn depth_fn) {
         if (!Observability::is_initialized() || !Tasks::is_initialized())
             return;
-        auto& family =
-            Observability::get().metrics().create_gauge("jobs_dlq_depth",
-                                                        "Current depth of the jobs dead-letter queue by type "
-                                                        "(special label type=\"_total\" for the aggregate)");
-        int refresh_sec = cfg.get<int>("jobs.dlq_metric_refresh_sec", "JOBS_DLQ_METRIC_REFRESH_SEC", 10);
+        auto& family = Observability::get().metrics().create_gauge(gauge_name, gauge_help);
+        int refresh_sec = cfg.get<int>(refresh_conf_key, refresh_env_var, 10);
         // Per-registration "every type ever published" set, so a queue that
-        // DRAINS gets reset to 0 — dlq_depth_by_type() omits empty types, so
-        // without this the gauge for a now-empty type sticks at its last value.
+        // DRAINS gets reset to 0 — depth_fn omits empty types, so without this
+        // the gauge for a now-empty type sticks at its last value.
         // Owned by the lambda (shared_ptr by value), so it's fresh on each
         // Core init and freed when Tasks drops the task — no cross-reinit leak
         // (a function-local static would have leaked one test's types into the
         // next in a long-lived test binary).
         auto ever_seen = std::make_shared<std::unordered_set<std::string>>();
-        Tasks::schedule_recurring("jobs_dlq_depth_refresh", std::chrono::seconds(refresh_sec), [&family, ever_seen] {
+        Tasks::schedule_recurring(task_name, std::chrono::seconds(refresh_sec), [&family, ever_seen, depth_fn] {
             // `family` is owned by the Observability registry. Shutdown order
             // (Tasks before Observability) plus app().quit() before
             // Core::shutdown() means the timer is stopped while the loop is
@@ -466,7 +484,7 @@ private:
             // touching the family rather than dereferencing a freed registry.
             if (!Observability::is_initialized() || !Jobs::is_initialized())
                 return;
-            auto per_type = Jobs::get().dlq_depth_by_type();
+            auto per_type = depth_fn();
             long total = 0;
             for (const auto& [type, depth] : per_type) {
                 family.Add({{"type", type}}).Set(static_cast<double>(depth));
@@ -481,38 +499,32 @@ private:
         });
     }
 
-    // Registers jobs_queue_depth as a Prometheus gauge, labeled by job type
-    // (special label type="_total" for the aggregate). The LEADING indicator
-    // of saturation — a climbing waiting-queue means submitters are outrunning
-    // the worker pool, visible long before anything lands in the DLQ. Mirrors
-    // register_dlq_metric_ exactly, over jobs:queue:* instead of jobs:dlq:*.
+    // Registers jobs_dlq_depth — the lagging "already gave up" signal:
+    // operators can spot which queue specifically is clogged.
+    static void register_dlq_metric_(Config::AppConfig& cfg) {
+        register_depth_metric_(cfg,
+                               "jobs_dlq_depth",
+                               "Current depth of the jobs dead-letter queue by type "
+                               "(special label type=\"_total\" for the aggregate)",
+                               "jobs.dlq_metric_refresh_sec",
+                               "JOBS_DLQ_METRIC_REFRESH_SEC",
+                               "jobs_dlq_depth_refresh",
+                               [] { return Jobs::get().dlq_depth_by_type(); });
+    }
+
+    // Registers jobs_queue_depth — the LEADING indicator of saturation: a
+    // climbing waiting-queue means submitters are outrunning the worker pool,
+    // visible long before anything lands in the DLQ. Same bookkeeping as the
+    // DLQ gauge, over jobs:queue:* instead of jobs:dlq:*.
     static void register_queue_depth_metric_(Config::AppConfig& cfg) {
-        if (!Observability::is_initialized() || !Tasks::is_initialized())
-            return;
-        auto& family = Observability::get().metrics().create_gauge("jobs_queue_depth",
-                                                                   "Current depth of the waiting jobs queue by type "
-                                                                   "(special label type=\"_total\" for the aggregate)");
-        int refresh_sec = cfg.get<int>("jobs.queue_metric_refresh_sec", "JOBS_QUEUE_METRIC_REFRESH_SEC", 10);
-        // Same drain-to-zero bookkeeping as the DLQ gauge: queue_depth_by_type()
-        // omits empty types, so a queue that drains would otherwise stick at its
-        // last value.
-        auto ever_seen = std::make_shared<std::unordered_set<std::string>>();
-        Tasks::schedule_recurring("jobs_queue_depth_refresh", std::chrono::seconds(refresh_sec), [&family, ever_seen] {
-            if (!Observability::is_initialized() || !Jobs::is_initialized())
-                return;
-            auto per_type = Jobs::get().queue_depth_by_type();
-            long total = 0;
-            for (const auto& [type, depth] : per_type) {
-                family.Add({{"type", type}}).Set(static_cast<double>(depth));
-                ever_seen->insert(type);
-                total += depth;
-            }
-            for (const auto& type : *ever_seen) {
-                if (per_type.find(type) == per_type.end())
-                    family.Add({{"type", type}}).Set(0.0);
-            }
-            family.Add({{"type", "_total"}}).Set(static_cast<double>(total));
-        });
+        register_depth_metric_(cfg,
+                               "jobs_queue_depth",
+                               "Current depth of the waiting jobs queue by type "
+                               "(special label type=\"_total\" for the aggregate)",
+                               "jobs.queue_metric_refresh_sec",
+                               "JOBS_QUEUE_METRIC_REFRESH_SEC",
+                               "jobs_queue_depth_refresh",
+                               [] { return Jobs::get().queue_depth_by_type(); });
     }
 
     // Registers db_pool_active_connections + db_pool_size gauges, labeled by

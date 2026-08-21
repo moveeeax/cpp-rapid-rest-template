@@ -10,12 +10,12 @@
 #pragma once
 
 #include <optional>
-#include <pqxx/pqxx>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
+#include "utils/Strings.hpp"
 #include "utils/Time.hpp"
 
 namespace Domain {
@@ -42,13 +42,7 @@ inline std::vector<std::string> split_tags(const std::string& csv) {
 }
 
 inline std::string join_tags(const std::vector<std::string>& tags) {
-    std::string out;
-    for (const auto& t : tags) {
-        if (!out.empty())
-            out += ',';
-        out += t;
-    }
-    return out;
+    return Utils::Strings::join(tags, ",");
 }
 
 struct Post {

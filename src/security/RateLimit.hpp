@@ -13,10 +13,7 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <memory>
-#include <optional>
-#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -317,26 +314,37 @@ inline std::string client_ip(const drogon::HttpRequestPtr& req, bool trust_proxy
 // trust_proxy=false this returns peerAddr (the proxy hop) rather than a
 // spoofable, client-supplied X-Real-IP header.
 inline std::string client_ip(const drogon::HttpRequestPtr& req) {
-    bool trust_proxy = false;
-    int count = 1;
-    if (::Config::is_initialized()) {
-        auto& c = ::Config::get();
-        trust_proxy = c.get<bool>("rate_limit.trust_proxy", "RATE_LIMIT_TRUST_PROXY", false);
-        count = c.get<int>("rate_limit.trusted_proxy_count", "RATE_LIMIT_TRUSTED_PROXY_COUNT", 1);
-        if (count < 1)
-            count = 1;
-    }
-    return client_ip(req, trust_proxy, count);
+    // Config is immutable after startup, so the two lookups are resolved once
+    // on first use instead of on every call (this overload runs per-request in
+    // hot paths like the login audit log).
+    struct TrustSettings {
+        bool trust_proxy = false;
+        int count = 1;
+    };
+    static const TrustSettings trust = [] {
+        TrustSettings t;
+        if (::Config::is_initialized()) {
+            auto& c = ::Config::get();
+            t.trust_proxy = c.get<bool>("rate_limit.trust_proxy", "RATE_LIMIT_TRUST_PROXY", false);
+            t.count = c.get<int>("rate_limit.trusted_proxy_count", "RATE_LIMIT_TRUSTED_PROXY_COUNT", 1);
+            if (t.count < 1)
+                t.count = 1;
+        }
+        return t;
+    }();
+    return client_ip(req, trust.trust_proxy, trust.count);
 }
 
 inline std::string identity_for(const drogon::HttpRequestPtr& req, const Config& cfg) {
-    const std::string ip = client_ip(req, cfg.trust_proxy, cfg.trusted_proxy_count);
-    auto principal = Security::Auth::principal_of(req);
-    const std::string user = (principal && !principal->subject.empty()) ? principal->subject : "";
-    if (cfg.scope == Scope::Ip || user.empty()) {
-        return "ip:" + ip;
+    // Principal first — the client IP (XFF walk + string copies) is only
+    // computed when the request actually buckets by IP.
+    if (cfg.scope != Scope::Ip) {
+        auto principal = Security::Auth::principal_of(req);
+        if (principal && !principal->subject.empty()) {
+            return "user:" + principal->subject;
+        }
     }
-    return "user:" + user;
+    return "ip:" + client_ip(req, cfg.trust_proxy, cfg.trusted_proxy_count);
 }
 
 // Always-by-IP identity for the protected tier. Login/register carry no

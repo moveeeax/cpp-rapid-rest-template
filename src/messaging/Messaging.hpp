@@ -47,6 +47,31 @@ inline ProducerDeliveryReportCb& producer_dr_cb() {
     static ProducerDeliveryReportCb cb;
     return cb;
 }
+
+/**
+ * @brief Set one librdkafka Conf property, throwing on refusal. @p what names
+ *        the setting in the thrown message ("Failed to set <what>: <errstr>").
+ */
+inline void conf_set_or_throw(RdKafka::Conf& conf,
+                              const std::string& key,
+                              const std::string& value,
+                              const std::string& what) {
+    std::string errstr;
+    if (conf.set(key, value, errstr) != RdKafka::Conf::CONF_OK) {
+        throw std::runtime_error("Failed to set " + what + ": " + errstr);
+    }
+}
+
+/// Overload for the pointer-valued delivery-report callback property.
+inline void conf_set_or_throw(RdKafka::Conf& conf,
+                              const std::string& key,
+                              RdKafka::DeliveryReportCb* value,
+                              const std::string& what) {
+    std::string errstr;
+    if (conf.set(key, value, errstr) != RdKafka::Conf::CONF_OK) {
+        throw std::runtime_error("Failed to set " + what + ": " + errstr);
+    }
+}
 }  // namespace detail
 
 /**
@@ -68,28 +93,17 @@ public:
         brokers = broker_list;
         conf.reset(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
 
-        std::string errstr;
-
-        if (conf->set("metadata.broker.list", brokers, errstr) != RdKafka::Conf::CONF_OK) {
-            throw std::runtime_error("Failed to set broker list: " + errstr);
-        }
-
-        if (conf->set("client.id", client_id, errstr) != RdKafka::Conf::CONF_OK) {
-            throw std::runtime_error("Failed to set client ID: " + errstr);
-        }
-
+        detail::conf_set_or_throw(*conf, "metadata.broker.list", brokers, "broker list");
+        detail::conf_set_or_throw(*conf, "client.id", client_id, "client ID");
         // Reliability: the idempotent producer guarantees no duplicates / no
         // reordering across retries and implies acks=all (wait for all in-sync
         // replicas). Without it, produce() is fire-and-forget and a transient
         // broker error silently drops the message.
-        if (conf->set("enable.idempotence", "true", errstr) != RdKafka::Conf::CONF_OK) {
-            throw std::runtime_error("Failed to set enable.idempotence: " + errstr);
-        }
+        detail::conf_set_or_throw(*conf, "enable.idempotence", "true", "enable.idempotence");
         // Surface async delivery failures (see ProducerDeliveryReportCb).
-        if (conf->set("dr_cb", &detail::producer_dr_cb(), errstr) != RdKafka::Conf::CONF_OK) {
-            throw std::runtime_error("Failed to set dr_cb: " + errstr);
-        }
+        detail::conf_set_or_throw(*conf, "dr_cb", &detail::producer_dr_cb(), "dr_cb");
 
+        std::string errstr;
         producer.reset(RdKafka::Producer::create(conf.get(), errstr));
         if (!producer) {
             throw std::runtime_error("Failed to create producer: " + errstr);
@@ -199,21 +213,16 @@ public:
         topics = topic_list;
         conf.reset(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
 
-        std::string errstr;
-
-        if (conf->set("metadata.broker.list", brokers, errstr) != RdKafka::Conf::CONF_OK)
-            throw std::runtime_error("Failed to set broker list: " + errstr);
-        if (conf->set("group.id", group_id, errstr) != RdKafka::Conf::CONF_OK)
-            throw std::runtime_error("Failed to set group ID: " + errstr);
-        if (conf->set("auto.offset.reset", auto_offset_reset, errstr) != RdKafka::Conf::CONF_OK)
-            throw std::runtime_error("Failed to set auto.offset.reset: " + errstr);
+        detail::conf_set_or_throw(*conf, "metadata.broker.list", brokers, "broker list");
+        detail::conf_set_or_throw(*conf, "group.id", group_id, "group ID");
+        detail::conf_set_or_throw(*conf, "auto.offset.reset", auto_offset_reset, "auto.offset.reset");
         // Manual commit only: auto-commit acks offsets on a timer regardless of
         // whether the callback succeeded, which silently drops a message whose
         // processing threw (at-most-once). We commit explicitly AFTER the
         // callback returns so a failure redelivers (at-least-once).
-        if (conf->set("enable.auto.commit", "false", errstr) != RdKafka::Conf::CONF_OK)
-            throw std::runtime_error("Failed to set auto.commit: " + errstr);
+        detail::conf_set_or_throw(*conf, "enable.auto.commit", "false", "auto.commit");
 
+        std::string errstr;
         consumer.reset(RdKafka::KafkaConsumer::create(conf.get(), errstr));
         if (!consumer) {
             throw std::runtime_error("Failed to create consumer: " + errstr);

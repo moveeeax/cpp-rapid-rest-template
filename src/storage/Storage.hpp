@@ -80,6 +80,18 @@ inline bool key_is_safe(const std::string& key) {
     return true;
 }
 
+namespace detail {
+
+/// Newest-first ordering of a list() result — shared by both backends.
+inline void sort_newest_first(std::vector<StorageBackend::ObjectInfo>& objects) {
+    std::sort(
+        objects.begin(), objects.end(), [](const StorageBackend::ObjectInfo& a, const StorageBackend::ObjectInfo& b) {
+            return a.last_modified > b.last_modified;
+        });
+}
+
+}  // namespace detail
+
 /// Local-filesystem backend. Stores each object as a file under `root`.
 class LocalStorage : public StorageBackend {
 public:
@@ -143,9 +155,7 @@ public:
                 Utils::Time::epoch_to_iso8601(std::chrono::duration_cast<std::chrono::seconds>(sys).count());
             out.push_back(std::move(o));
         }
-        std::sort(out.begin(), out.end(), [](const ObjectInfo& a, const ObjectInfo& b) {
-            return a.last_modified > b.last_modified;
-        });
+        detail::sort_newest_first(out);
         return out;
     }
 
@@ -259,9 +269,7 @@ public:
         }
         if (truncated)
             *truncated = body.find("<IsTruncated>true</IsTruncated>") != std::string::npos;
-        std::sort(out.begin(), out.end(), [](const ObjectInfo& a, const ObjectInfo& b) {
-            return a.last_modified > b.last_modified;
-        });
+        detail::sort_newest_first(out);
         return out;
     }
 
@@ -319,13 +327,15 @@ private:
         return slash == std::string::npos ? rest : rest.substr(0, slash);
     }
 
-    // RFC 3986 encode a path, leaving unreserved chars and '/' (segment seps).
-    static std::string uri_encode_path(const std::string& s) {
+    // RFC 3986 percent-encoding, leaving unreserved chars. keep_slash leaves
+    // '/' intact (path segment separators); query values encode it too (SigV4
+    // canonical query values must).
+    static std::string uri_encode(const std::string& s, bool keep_slash) {
         static const char* hex = "0123456789ABCDEF";
         std::string out;
         for (unsigned char c : s) {
             if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
-                c == '.' || c == '~' || c == '/')
+                c == '.' || c == '~' || (keep_slash && c == '/'))
                 out.push_back(static_cast<char>(c));
             else {
                 out.push_back('%');
@@ -336,23 +346,9 @@ private:
         return out;
     }
 
-    // Query-value encoding: like the path form but '/' is percent-encoded too
-    // (SigV4 canonical query values must encode it).
-    static std::string uri_encode_query(const std::string& s) {
-        static const char* hex = "0123456789ABCDEF";
-        std::string out;
-        for (unsigned char c : s) {
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
-                c == '.' || c == '~')
-                out.push_back(static_cast<char>(c));
-            else {
-                out.push_back('%');
-                out.push_back(hex[c >> 4]);
-                out.push_back(hex[c & 0xF]);
-            }
-        }
-        return out;
-    }
+    static std::string uri_encode_path(const std::string& s) { return uri_encode(s, /*keep_slash=*/true); }
+
+    static std::string uri_encode_query(const std::string& s) { return uri_encode(s, /*keep_slash=*/false); }
 
     static void amz_dates(std::string& amzdate, std::string& datestamp) {
         const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
@@ -505,10 +501,12 @@ inline void initialize(Config::AppConfig& cfg) {
             static_cast<long>(cfg.get<int>("storage.s3.connect_timeout_sec", "S3_CONNECT_TIMEOUT_SEC", 2));
         if (s3.endpoint.empty() || s3.bucket.empty())
             throw std::runtime_error("storage.backend=s3 requires S3_ENDPOINT and S3_BUCKET");
+        // Copied before the move below — the success log must not re-query the
+        // config (or read a moved-from struct).
+        const std::string endpoint = s3.endpoint;
+        const std::string bucket = s3.bucket;
         global_storage = std::make_unique<S3Storage>(std::move(s3));
-        spdlog::info("Storage: s3 backend at '{}' bucket '{}'",
-                     cfg.get<std::string>("storage.s3.endpoint", "S3_ENDPOINT", ""),
-                     cfg.get<std::string>("storage.s3.bucket", "S3_BUCKET", ""));
+        spdlog::info("Storage: s3 backend at '{}' bucket '{}'", endpoint, bucket);
     } else {
         throw std::runtime_error("storage.backend '" + backend +
                                  "' is not built in — install a StorageBackend for it (see Storage.hpp)");

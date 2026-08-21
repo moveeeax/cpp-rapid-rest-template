@@ -8,13 +8,10 @@
 #include <algorithm>
 #include <atomic>
 #include <csignal>
-#include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <optional>
-#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -73,46 +70,18 @@ json process_job(const Jobs::Job& job) {
 
 namespace {
 
-bool hex_to_bytes(std::string_view hex, uint8_t* out, size_t n) {
-    if (hex.size() != n * 2)
-        return false;
-    auto nibble = [](char c) -> int {
-        if (c >= '0' && c <= '9')
-            return c - '0';
-        if (c >= 'a' && c <= 'f')
-            return c - 'a' + 10;
-        if (c >= 'A' && c <= 'F')
-            return c - 'A' + 10;
-        return -1;
-    };
-    for (size_t i = 0; i < n; ++i) {
-        int hi = nibble(hex[2 * i]);
-        int lo = nibble(hex[2 * i + 1]);
-        if (hi < 0 || lo < 0)
-            return false;
-        out[i] = static_cast<uint8_t>((hi << 4) | lo);
-    }
-    return true;
-}
-
 // Rebuild the originating request's span context from the W3C traceparent the
 // submitter stamped on the job, so the worker's processing span continues the
-// same distributed trace instead of starting an unrelated root.
+// same distributed trace instead of starting an unrelated root. Parsing and
+// SpanContext reconstruction are the shared Observability::Trace helpers —
+// the same path the HTTP middleware uses for inbound traceparent headers.
 std::optional<opentelemetry::trace::SpanContext> parent_ctx_from_traceparent(const std::string& tp) {
     if (tp.empty())
         return std::nullopt;
     auto parsed = Observability::Trace::parse_traceparent(tp);
     if (!parsed)
         return std::nullopt;
-    uint8_t tid[16], sid[8], flags[1];
-    if (!hex_to_bytes(parsed->trace_id, tid, 16) || !hex_to_bytes(parsed->parent_id, sid, 8) ||
-        !hex_to_bytes(parsed->flags, flags, 1))
-        return std::nullopt;
-    return opentelemetry::trace::SpanContext(
-        opentelemetry::trace::TraceId(opentelemetry::nostd::span<const uint8_t, 16>(tid)),
-        opentelemetry::trace::SpanId(opentelemetry::nostd::span<const uint8_t, 8>(sid)),
-        opentelemetry::trace::TraceFlags(flags[0]),
-        /*is_remote=*/true);
+    return Observability::Trace::to_remote_span_context(*parsed);
 }
 
 }  // namespace
@@ -121,15 +90,7 @@ std::optional<opentelemetry::trace::SpanContext> parent_ctx_from_traceparent(con
  * @brief Worker thread loop: BRPOP → process → complete/fail
  */
 void worker_loop(const std::string& worker_id, const std::vector<std::string>& types, long brpop_timeout) {
-    {
-        std::string types_joined;
-        for (size_t i = 0; i < types.size(); ++i) {
-            if (i > 0)
-                types_joined += ",";
-            types_joined += types[i];
-        }
-        spdlog::info("Worker thread started: id={} types={}", worker_id, types_joined);
-    }
+    spdlog::info("Worker thread started: id={} types={}", worker_id, Utils::Strings::join(types, ","));
 
     while (!shutdown_requested.load()) {
         try {
@@ -280,22 +241,27 @@ int main(int argc, char* argv[]) {
         // thread can pick + dispatch.
         Jobs::register_builtin_handlers();
 
+        // Read worker configuration from env vars (override config.json).
+        // Read ONCE, up here, because both the recovery sweep below and the
+        // spawn loop need the same id/concurrency — a second read with its own
+        // defaults is how the two paths drift apart.
+        auto& config = Config::get();
+        std::string worker_id = config.get<std::string>("worker.id", "WORKER_ID", "worker-1");
+        int concurrency = config.get<int>("worker.concurrency", "WORKER_CONCURRENCY", 2);
+
         // Rescue any jobs that the previous instance with this WORKER_ID
         // left in the processing list before crashing. Must run BEFORE
         // workers start picking, otherwise a thread could double-process
         // a job that's about to be put back on the live queue.
         {
-            const std::string base_id = Config::get().get<std::string>("worker.id", "WORKER_ID", "worker-1");
             // Worker threads pick under "<base>-<n>" (see the spawn loop below),
             // so recovery must sweep each per-thread processing list. Recovering
             // only the bare base id (the old behaviour) matched nothing and
-            // silently stranded in-flight jobs on crash. Same config keys/
-            // defaults as the spawn loop so the ids line up. Also sweep the bare
+            // silently stranded in-flight jobs on crash. Also sweep the bare
             // id for back-compat with jobs left by an older single-id scheme.
-            const int recover_concurrency = Config::get().get<int>("worker.concurrency", "WORKER_CONCURRENCY", 2);
-            Jobs::get().recover_processing(base_id);
-            for (int i = 0; i < recover_concurrency; ++i)
-                Jobs::get().recover_processing(base_id + "-" + std::to_string(i));
+            Jobs::get().recover_processing(worker_id);
+            for (int i = 0; i < concurrency; ++i)
+                Jobs::get().recover_processing(worker_id + "-" + std::to_string(i));
         }
 
         // Register worker-specific Prometheus families. Labeled by job type
@@ -309,12 +275,6 @@ int main(int argc, char* argv[]) {
             worker_metrics::active_jobs = &metrics.create_gauge(
                 "worker_active_jobs", "Jobs currently being processed by this worker, labeled by type");
         }
-
-        // Read worker configuration from env vars (override config.json)
-        auto& config = Config::get();
-
-        std::string worker_id = config.get<std::string>("worker.id", "WORKER_ID", "worker-1");
-        int concurrency = config.get<int>("worker.concurrency", "WORKER_CONCURRENCY", 2);
 
         // Parse worker queue types (comma-separated env var or JSON array)
         std::vector<std::string> worker_types =
@@ -343,12 +303,7 @@ int main(int argc, char* argv[]) {
         // → straight to DLQ). Surface the producer/consumer mismatch at startup.
         // WORKER_STRICT_TYPES=true upgrades the warning to a hard refusal to start.
         if (auto missing = Jobs::Dispatcher::get().unregistered(worker_types); !missing.empty()) {
-            std::string joined;
-            for (size_t i = 0; i < missing.size(); ++i) {
-                if (i)
-                    joined += ",";
-                joined += missing[i];
-            }
+            const std::string joined = Utils::Strings::join(missing, ",");
             if (config.get<bool>("worker.strict_types", "WORKER_STRICT_TYPES", false)) {
                 spdlog::error(
                     "Worker subscribed to job type(s) with no handler: {} — refusing to start "
@@ -427,13 +382,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "Worker ID:    " << worker_id << std::endl;
-        std::cout << "Queue types:  ";
-        for (size_t i = 0; i < worker_types.size(); ++i) {
-            if (i > 0)
-                std::cout << ", ";
-            std::cout << worker_types[i];
-        }
-        std::cout << std::endl;
+        std::cout << "Queue types:  " << Utils::Strings::join(worker_types, ", ") << std::endl;
         std::cout << "Concurrency:  " << concurrency << std::endl;
         std::cout << "Health port:  " << health_port << std::endl;
         std::cout << "BRPOP timeout:" << brpop_timeout << "s" << std::endl;

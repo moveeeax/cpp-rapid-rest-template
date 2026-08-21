@@ -103,7 +103,7 @@ public:
 class TraceIdFlag : public spdlog::custom_flag_formatter {
 public:
     void format(const spdlog::details::log_msg&, const std::tm&, spdlog::memory_buf_t& dest) override {
-        const std::string tp = Trace::current_traceparent();  // "00-<trace_id>-<span_id>-<flags>"
+        const std::string& tp = Trace::current_traceparent_ref();  // "00-<trace_id>-<span_id>-<flags>"
         const auto first = tp.find('-');
         if (first == std::string::npos)
             return;

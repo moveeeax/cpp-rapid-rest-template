@@ -155,7 +155,6 @@ inline std::unique_ptr<Redis> make_sentinel_client(const std::string& master_nam
 class CacheManager {
 private:
     std::unique_ptr<Redis> redis_client;
-    bool use_sentinel = false;
     bool initialized = false;
 
 public:
@@ -184,7 +183,6 @@ public:
                 addr.host, addr.port, pool_size, password, socket_timeout, pool_wait_timeout, db);
             redis_client->ping();
             initialized = true;
-            use_sentinel = false;
             spdlog::info("Redis cache initialized (standalone: {}:{}, db={})", addr.host, addr.port, db);
         } catch (const Error& e) {
             spdlog::error("Failed to initialize Redis cache: {}", e.what());
@@ -214,7 +212,6 @@ public:
                 master_name, sentinels, pool_size, password, sentinel_password, socket_timeout, pool_wait_timeout, db);
             redis_client->ping();
             initialized = true;
-            use_sentinel = true;
             spdlog::info("Redis cache initialized with Sentinel (master: {}, db={})", master_name, db);
         } catch (const Error& e) {
             spdlog::error("Failed to initialize Redis with Sentinel: {}", e.what());
@@ -223,18 +220,18 @@ public:
     }
 
     virtual bool set(const std::string& key, const std::string& value, long ttl = 0) {
-        check_initialized();
-        try {
-            if (ttl > 0) {
-                redis_client->setex(key, ttl, value);
-            } else {
-                redis_client->set(key, value);
-            }
-            return true;
-        } catch (const Error& e) {
-            spdlog::error("Failed to set key '{}': {}", key, e.what());
-            return false;
-        }
+        return guarded_(
+            false,
+            [&] {
+                if (ttl > 0) {
+                    redis_client->setex(key, ttl, value);
+                } else {
+                    redis_client->set(key, value);
+                }
+                return true;
+            },
+            "Failed to set key '{}': {}",
+            key);
     }
 
     /**
@@ -245,87 +242,59 @@ public:
      *        to avoid double-processing during outages).
      */
     virtual bool set_nx(const std::string& key, const std::string& value, std::chrono::milliseconds ttl) {
-        check_initialized();
-        try {
-            return redis_client->set(key, value, ttl, sw::redis::UpdateType::NOT_EXIST);
-        } catch (const Error& e) {
-            spdlog::error("Failed to SET NX key '{}': {}", key, e.what());
-            return false;
-        }
+        return guarded_(
+            false,
+            [&] { return redis_client->set(key, value, ttl, sw::redis::UpdateType::NOT_EXIST); },
+            "Failed to SET NX key '{}': {}",
+            key);
     }
 
     virtual std::optional<std::string> get(const std::string& key) {
-        check_initialized();
-        try {
-            auto val = redis_client->get(key);
-            if (val) {
-                return *val;
-            }
-            return std::nullopt;
-        } catch (const Error& e) {
-            spdlog::error("Failed to get key '{}': {}", key, e.what());
-            return std::nullopt;
-        }
+        return guarded_(
+            std::optional<std::string>{},
+            [&]() -> std::optional<std::string> {
+                auto val = redis_client->get(key);
+                if (val) {
+                    return *val;
+                }
+                return std::nullopt;
+            },
+            "Failed to get key '{}': {}",
+            key);
     }
 
     virtual long del(const std::string& key) {
-        check_initialized();
-        try {
-            return redis_client->del(key);
-        } catch (const Error& e) {
-            spdlog::error("Failed to delete key '{}': {}", key, e.what());
-            return 0;
-        }
+        return guarded_(
+            0L, [&] { return redis_client->del(key); }, "Failed to delete key '{}': {}", key);
     }
 
     virtual long del(const std::vector<std::string>& keys) {
-        check_initialized();
-        try {
-            return redis_client->del(keys.begin(), keys.end());
-        } catch (const Error& e) {
-            spdlog::error("Failed to delete multiple keys: {}", e.what());
-            return 0;
-        }
+        return guarded_(
+            0L, [&] { return redis_client->del(keys.begin(), keys.end()); }, "Failed to delete multiple keys: {}");
     }
 
     virtual bool exists(const std::string& key) {
-        check_initialized();
-        try {
-            return redis_client->exists(key) > 0;
-        } catch (const Error& e) {
-            spdlog::error("Failed to check existence of key '{}': {}", key, e.what());
-            return false;
-        }
+        return guarded_(
+            false, [&] { return redis_client->exists(key) > 0; }, "Failed to check existence of key '{}': {}", key);
     }
 
     virtual bool expire(const std::string& key, long seconds) {
-        check_initialized();
-        try {
-            return redis_client->expire(key, seconds);
-        } catch (const Error& e) {
-            spdlog::error("Failed to set expiration on key '{}': {}", key, e.what());
-            return false;
-        }
+        return guarded_(
+            false, [&] { return redis_client->expire(key, seconds); }, "Failed to set expiration on key '{}': {}", key);
     }
 
     virtual long ttl(const std::string& key) {
-        check_initialized();
-        try {
-            return redis_client->ttl(key);
-        } catch (const Error& e) {
-            spdlog::error("Failed to get TTL for key '{}': {}", key, e.what());
-            return -2;
-        }
+        return guarded_(
+            -2L, [&] { return redis_client->ttl(key); }, "Failed to get TTL for key '{}': {}", key);
     }
 
+    // NOT fail-open (see class contract): counters silently stuck at a
+    // default would corrupt rate accounting, so incr/decr log and RETHROW.
+    // INCRBY key 1 is exactly INCR key, so a single command suffices.
     virtual long long incr(const std::string& key, long long increment = 1) {
         check_initialized();
         try {
-            if (increment == 1) {
-                return redis_client->incr(key);
-            } else {
-                return redis_client->incrby(key, increment);
-            }
+            return redis_client->incrby(key, increment);
         } catch (const Error& e) {
             spdlog::error("Failed to increment key '{}': {}", key, e.what());
             throw;
@@ -335,11 +304,7 @@ public:
     virtual long long decr(const std::string& key, long long decrement = 1) {
         check_initialized();
         try {
-            if (decrement == 1) {
-                return redis_client->decr(key);
-            } else {
-                return redis_client->decrby(key, decrement);
-            }
+            return redis_client->decrby(key, decrement);
         } catch (const Error& e) {
             spdlog::error("Failed to decrement key '{}': {}", key, e.what());
             throw;
@@ -347,45 +312,33 @@ public:
     }
 
     long sadd(const std::string& key, const std::string& member) {
-        check_initialized();
-        try {
-            return redis_client->sadd(key, member);
-        } catch (const Error& e) {
-            spdlog::error("Failed to add to set '{}': {}", key, e.what());
-            return 0;
-        }
+        return guarded_(
+            0L, [&] { return redis_client->sadd(key, member); }, "Failed to add to set '{}': {}", key);
     }
 
     std::vector<std::string> smembers(const std::string& key) {
-        check_initialized();
-        try {
-            std::vector<std::string> members;
-            redis_client->smembers(key, std::back_inserter(members));
-            return members;
-        } catch (const Error& e) {
-            spdlog::error("Failed to get members of set '{}': {}", key, e.what());
-            return {};
-        }
+        return guarded_(
+            std::vector<std::string>{},
+            [&] {
+                std::vector<std::string> members;
+                redis_client->smembers(key, std::back_inserter(members));
+                return members;
+            },
+            "Failed to get members of set '{}': {}",
+            key);
     }
 
     long zadd(const std::string& key, const std::string& member, double score) {
-        check_initialized();
-        try {
-            return redis_client->zadd(key, member, score);
-        } catch (const Error& e) {
-            spdlog::error("Failed to add to sorted set '{}': {}", key, e.what());
-            return 0;
-        }
+        return guarded_(
+            0L, [&] { return redis_client->zadd(key, member, score); }, "Failed to add to sorted set '{}': {}", key);
     }
 
     long long publish(const std::string& channel, const std::string& message) {
-        check_initialized();
-        try {
-            return redis_client->publish(channel, message);
-        } catch (const Error& e) {
-            spdlog::error("Failed to publish to channel '{}': {}", channel, e.what());
-            return 0;
-        }
+        return guarded_(
+            0LL,
+            [&] { return redis_client->publish(channel, message); },
+            "Failed to publish to channel '{}': {}",
+            channel);
     }
 
     bool health_check() {
@@ -405,7 +358,6 @@ public:
             spdlog::info("Shutting down cache manager");
             redis_client.reset();
             initialized = false;
-            use_sentinel = false;
         }
     }
 
@@ -420,6 +372,25 @@ private:
     void check_initialized() const {
         if (!initialized) {
             throw std::runtime_error("Cache not initialized");
+        }
+    }
+
+    /**
+     * @brief Shared body of the FAIL-OPEN wrappers above: require an
+     *        initialized client, run @p fn, and on sw::redis::Error log
+     *        @p err_fmt (context args + e.what()) and return @p fallback.
+     *        check_initialized() still THROWS — fail-open covers Redis
+     *        errors, not use-before-init. incr/decr deliberately do not
+     *        route through here (they rethrow — see the class contract).
+     */
+    template <typename R, typename Fn, typename... Args>
+    R guarded_(R fallback, Fn&& fn, spdlog::format_string_t<Args..., const char*> err_fmt, Args&&... args) {
+        check_initialized();
+        try {
+            return fn();
+        } catch (const Error& e) {
+            spdlog::error(err_fmt, std::forward<Args>(args)..., e.what());
+            return fallback;
         }
     }
 };

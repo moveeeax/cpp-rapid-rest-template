@@ -8,6 +8,7 @@
 
 #include <drogon/HttpController.h>
 #include <drogon/drogon.h>
+#include <spdlog/spdlog.h>
 
 #include "api/Guards.hpp"
 #include "api/RequestUtils.hpp"
@@ -91,10 +92,8 @@ public:
         API_REQUIRE_ADMIN(req, callback);
         API_REQUIRE_JOBS_READY(callback);
         try {
-            if (!is_valid_uuid(id)) {
-                callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+            if (!require_valid_uuid(id, callback))
                 return;
-            }
             auto job = Jobs::get().get_status(id);
             if (!job) {
                 callback(ErrorResponse::not_found("job"));
@@ -132,10 +131,8 @@ public:
         API_REQUIRE_ADMIN(req, callback);
         API_REQUIRE_JOBS_READY(callback);
         try {
-            if (!is_valid_uuid(id)) {
-                callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+            if (!require_valid_uuid(id, callback))
                 return;
-            }
             if (!Jobs::get().requeue_from_dlq(id)) {
                 callback(ErrorResponse::not_found("dlq_job"));
                 return;
@@ -153,10 +150,8 @@ public:
         API_REQUIRE_ADMIN(req, callback);
         API_REQUIRE_JOBS_READY(callback);
         try {
-            if (!is_valid_uuid(id)) {
-                callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+            if (!require_valid_uuid(id, callback))
                 return;
-            }
             if (!Jobs::get().cancel(id)) {
                 callback(ErrorResponse::not_found("cancellable_job"));
                 return;

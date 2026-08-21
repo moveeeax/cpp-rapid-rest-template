@@ -20,6 +20,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "utils/Strings.hpp"
+
 namespace Config {
 
 using json = nlohmann::json;
@@ -176,8 +178,7 @@ private:
         } else if constexpr (std::is_same_v<T, double>) {
             return std::stod(value);
         } else if constexpr (std::is_same_v<T, bool>) {
-            std::string str_value(value);
-            return str_value == "true" || str_value == "1" || str_value == "yes";
+            return Utils::Strings::flag_true(value);
         } else {
             return T{};
         }
