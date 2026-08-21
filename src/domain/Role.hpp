@@ -13,7 +13,6 @@
 #pragma once
 
 #include <cstdint>
-#include <pqxx/pqxx>
 #include <string>
 
 #include <nlohmann/json.hpp>

@@ -29,8 +29,6 @@
 #include <opentelemetry/trace/span_context.h>
 #include <spdlog/spdlog.h>
 
-#include <nlohmann/json.hpp>
-
 #include "api/RequestUtils.hpp"
 #include "observability/Observability.hpp"
 #include "observability/Trace.hpp"
@@ -59,49 +57,6 @@ namespace detail {
 
 using TraceSpan = opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span>;
 
-/**
- * @brief Hex string → fixed-size byte buffer (for TraceId/SpanId).
- * @return false if the input length doesn't match or has a non-hex char.
- */
-inline bool hex_to_bytes(std::string_view hex, uint8_t* out, size_t n) {
-    if (hex.size() != n * 2)
-        return false;
-    auto nibble = [](char c) -> int {
-        if (c >= '0' && c <= '9')
-            return c - '0';
-        if (c >= 'a' && c <= 'f')
-            return c - 'a' + 10;
-        if (c >= 'A' && c <= 'F')
-            return c - 'A' + 10;
-        return -1;
-    };
-    for (size_t i = 0; i < n; ++i) {
-        const int hi = nibble(hex[2 * i]), lo = nibble(hex[2 * i + 1]);
-        if (hi < 0 || lo < 0)
-            return false;
-        out[i] = static_cast<uint8_t>((hi << 4) | lo);
-    }
-    return true;
-}
-
-/**
- * @brief Build a remote OTel SpanContext from a parsed W3C traceparent, so
- *        our server span JOINS the caller's distributed trace instead of
- *        starting an unrelated root.
- */
-inline std::optional<opentelemetry::trace::SpanContext> to_remote_span_context(
-    const Observability::Trace::TraceContext& t) {
-    uint8_t tid[16], sid[8], flags[1];
-    if (!hex_to_bytes(t.trace_id, tid, 16) || !hex_to_bytes(t.parent_id, sid, 8) || !hex_to_bytes(t.flags, flags, 1)) {
-        return std::nullopt;
-    }
-    return opentelemetry::trace::SpanContext(
-        opentelemetry::trace::TraceId(opentelemetry::nostd::span<const uint8_t, 16>(tid)),
-        opentelemetry::trace::SpanId(opentelemetry::nostd::span<const uint8_t, 8>(sid)),
-        opentelemetry::trace::TraceFlags(flags[0]),
-        /*is_remote=*/true);
-}
-
 }  // namespace detail
 
 inline void ensure_http_metric_families() {
@@ -128,7 +83,7 @@ inline bool is_probe_path(const std::string& path) {
 /// register_security_headers() and read by BOTH the post-handling advice and
 /// the sync-advice short-circuit path (which never reaches that advice).
 inline bool hsts_enabled = false;
-inline int hsts_max_age_sec = 31536000;
+inline std::string hsts_header_value = "max-age=31536000; includeSubDomains";
 
 /// @see register_security_headers for why each header is here. set_if_absent
 /// never clobbers a header a handler (or the CORS advice) deliberately set.
@@ -142,8 +97,7 @@ inline void apply_security_headers(const drogon::HttpResponsePtr& resp) {
     set_if_absent("Referrer-Policy", "no-referrer");
     set_if_absent("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
     if (hsts_enabled)
-        set_if_absent("Strict-Transport-Security",
-                      "max-age=" + std::to_string(hsts_max_age_sec) + "; includeSubDomains");
+        set_if_absent("Strict-Transport-Security", hsts_header_value);
 }
 
 /// Echo the limiter's budget for this request. Shared by the rate-limit
@@ -157,6 +111,19 @@ inline void apply_rate_limit_headers(const drogon::HttpRequestPtr& req, const dr
         return;
     resp->addHeader("X-RateLimit-Limit", std::to_string(req->attributes()->get<int>("_rl_limit")));
     resp->addHeader("X-RateLimit-Remaining", std::to_string(req->attributes()->get<int>("_rl_remaining")));
+}
+
+/// Echo an allowlisted Origin back as Access-Control-Allow-Origin (+ Vary so
+/// caches keep per-origin variants apart). Shared by the CORS preflight sync
+/// advice and the post-handling advice, so both answer identically.
+inline void apply_cors_origin(const std::vector<std::string>& cors_origins,
+                              const drogon::HttpRequestPtr& req,
+                              const drogon::HttpResponsePtr& resp) {
+    const auto& origin = req->getHeader("Origin");
+    if (!origin.empty() && std::find(cors_origins.begin(), cors_origins.end(), origin) != cors_origins.end()) {
+        resp->addHeader("Access-Control-Allow-Origin", origin);
+        resp->addHeader("Vary", "Origin");
+    }
 }
 
 /**
@@ -222,8 +189,11 @@ inline void register_auth() {
         return;
     if (Security::Auth::get().config().mode == Security::Auth::AuthMode::None)
         return;
+    // The static Bearer token never changes after init — build the expected
+    // header value once at registration instead of per request.
+    const std::string bearer_expected = "Bearer " + Security::Auth::get().config().bearer_token;
 
-    drogon::app().registerSyncAdvice([](const drogon::HttpRequestPtr& req) -> drogon::HttpResponsePtr {
+    drogon::app().registerSyncAdvice([bearer_expected](const drogon::HttpRequestPtr& req) -> drogon::HttpResponsePtr {
         // CORS preflight (OPTIONS) carries no credentials and is answered by the
         // CORS advice — never gate it behind auth, or the browser preflight gets
         // a 401 and the actual request is never sent.
@@ -243,11 +213,10 @@ inline void register_auth() {
         if (cfg.mode == Security::Auth::AuthMode::Bearer) {
             // Bearer mode is the legacy header-only path — kept verbatim.
             const auto& header = req->getHeader("Authorization");
-            const std::string expected = "Bearer " + cfg.bearer_token;
             // Constant-time compare: a plain `==` returns on the first differing
             // byte, leaking the static token through response timing.
-            return Utils::Crypto::constant_time_equals(header, expected) ? drogon::HttpResponsePtr{}
-                                                                         : unauthorized("invalid_token");
+            return Utils::Crypto::constant_time_equals(header, bearer_expected) ? drogon::HttpResponsePtr{}
+                                                                                : unauthorized("invalid_token");
         }
         // Machine clients: a presented API key (X-API-Key, or an Authorization
         // token with the cpk_ prefix) fully decides the request. Absent → fall
@@ -443,13 +412,9 @@ inline void register_cors() {
     drogon::app().registerSyncAdvice([cors_origins](const drogon::HttpRequestPtr& req) -> drogon::HttpResponsePtr {
         if (req->method() != drogon::Options)
             return {};
-        const auto& origin = req->getHeader("Origin");
         auto resp = drogon::HttpResponse::newHttpResponse();
         resp->setStatusCode(drogon::k204NoContent);
-        if (!origin.empty() && std::find(cors_origins.begin(), cors_origins.end(), origin) != cors_origins.end()) {
-            resp->addHeader("Access-Control-Allow-Origin", origin);
-            resp->addHeader("Vary", "Origin");
-        }
+        detail::apply_cors_origin(cors_origins, req, resp);
         resp->addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
         resp->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
         resp->addHeader("Access-Control-Max-Age", "600");
@@ -457,11 +422,7 @@ inline void register_cors() {
     });
     drogon::app().registerPostHandlingAdvice(
         [cors_origins](const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp) {
-            const auto& origin = req->getHeader("Origin");
-            if (!origin.empty() && std::find(cors_origins.begin(), cors_origins.end(), origin) != cors_origins.end()) {
-                resp->addHeader("Access-Control-Allow-Origin", origin);
-                resp->addHeader("Vary", "Origin");
-            }
+            detail::apply_cors_origin(cors_origins, req, resp);
         });
 }
 
@@ -477,7 +438,8 @@ inline void register_cors() {
 inline void register_security_headers() {
     if (Config::is_initialized()) {
         detail::hsts_enabled = Config::get().get<bool>("security.hsts", "SECURITY_HSTS", false);
-        detail::hsts_max_age_sec = Config::get().get<int>("security.hsts_max_age", "SECURITY_HSTS_MAX_AGE", 31536000);
+        const int max_age_sec = Config::get().get<int>("security.hsts_max_age", "SECURITY_HSTS_MAX_AGE", 31536000);
+        detail::hsts_header_value = "max-age=" + std::to_string(max_age_sec) + "; includeSubDomains";
     }
     drogon::app().registerPostHandlingAdvice([](const drogon::HttpRequestPtr&, const drogon::HttpResponsePtr& resp) {
         detail::apply_security_headers(resp);
@@ -539,7 +501,7 @@ inline void register_tracing_pre() {
             // arrived — our span becomes a child of the upstream client span
             // instead of an unrelated root.
             if (parsed) {
-                if (auto remote = detail::to_remote_span_context(*parsed))
+                if (auto remote = Observability::Trace::to_remote_span_context(*parsed))
                     opts.parent = *remote;
             }
             // Normalized operation name ("GET /api/v1/jobs/:id"): raw paths would
@@ -613,6 +575,15 @@ inline Timing measure(const drogon::HttpRequestPtr& req) {
     } catch (...) {
         return {0, 0};
     }
+}
+
+/// The normalized route the request-id advice computed; fall back to a fresh
+/// compute for a response minted outside the advice chain. Never expose
+/// req->path() raw — it carries account tokens.
+inline std::string resolved_norm_path(const drogon::HttpRequestPtr& req) {
+    if (req->attributes()->find("_norm_path"))
+        return req->attributes()->get<std::string>("_norm_path");
+    return normalize_path_for_metrics(req->path());
 }
 
 inline std::string emit_trace_headers(const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp) {
@@ -700,11 +671,7 @@ inline drogon::HttpResponsePtr short_circuit(const drogon::HttpRequestPtr& req, 
     detail::ensure_request_ids(req);  // no-op when register_request_id() ran
     const auto timing = access_log_detail::measure(req);
     const std::string method = std::string(req->getMethodString());
-    std::string norm_path;
-    if (req->attributes()->find("_norm_path"))
-        norm_path = req->attributes()->get<std::string>("_norm_path");
-    else
-        norm_path = normalize_path_for_metrics(req->path());
+    const std::string norm_path = access_log_detail::resolved_norm_path(req);
     const int status = static_cast<int>(resp->statusCode());
 
     // Same order the post-handling chain would have applied them in:
@@ -734,16 +701,9 @@ inline void register_access_log_post() {
         [](const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp) {
             const auto timing = access_log_detail::measure(req);
             const std::string method = std::string(req->getMethodString());
-            // Reuse the route the request-id advice computed; fall back to a
-            // fresh compute for a response minted outside the advice chain.
-            // Never log req->path() raw — it carries account tokens.
             // (Short-circuited responses never reach here at all: they are
             // logged once by middleware::short_circuit instead.)
-            std::string norm_path;
-            if (req->attributes()->find("_norm_path"))
-                norm_path = req->attributes()->get<std::string>("_norm_path");
-            else
-                norm_path = normalize_path_for_metrics(req->path());
+            const std::string norm_path = access_log_detail::resolved_norm_path(req);
             const int status = static_cast<int>(resp->statusCode());
 
             const std::string trace_id = access_log_detail::emit_trace_headers(req, resp);

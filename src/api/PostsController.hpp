@@ -48,10 +48,8 @@ public:
     METHOD_LIST_END
 
     void listPosts(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
         const auto page = parse_page_params(req, /*default_limit=*/50, /*max_limit=*/200);
         Repositories::AdminListFilter f;
@@ -67,18 +65,14 @@ public:
             Repositories::PostRepository repo;
             auto items = repo.list_admin(f, page.limit, page.offset);
             long total = repo.count_admin(f);
-            json data = json::array();
-            for (const auto& e : items)
-                data.push_back(e);
-            callback(Response::ok({{"data", data}, {"total", total}, {"limit", page.limit}, {"offset", page.offset}}));
+            json data = items;
+            callback(Response::paginated(data, total, page.limit, page.offset));
         });
     }
 
     void createPost(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
         json body;
         if (!Validation::parse_body(req, body, callback))
@@ -89,24 +83,18 @@ public:
         with_repo_errors(callback, "createPost", [&] {
             Repositories::PostRepository repo;
             auto created = repo.create(in);
-            auto resp = Response::ok({{"data", json(created)}});
-            resp->setStatusCode(k201Created);
-            callback(resp);
+            callback(Response::created({{"data", json(created)}}));
         });
     }
 
     void getPost(const HttpRequestPtr& req,
                  std::function<void(const HttpResponsePtr&)>&& callback,
                  const std::string& id) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+        if (!require_valid_uuid(id, callback))
             return;
-        }
         with_repo_errors(callback, "getPost", [&] {
             Repositories::PostRepository repo;
             auto found = repo.find(id);
@@ -121,15 +109,11 @@ public:
     void updatePost(const HttpRequestPtr& req,
                     std::function<void(const HttpResponsePtr&)>&& callback,
                     const std::string& id) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+        if (!require_valid_uuid(id, callback))
             return;
-        }
         json body;
         if (!Validation::parse_body(req, body, callback))
             return;
@@ -157,15 +141,11 @@ public:
     void deletePost(const HttpRequestPtr& req,
                     std::function<void(const HttpResponsePtr&)>&& callback,
                     const std::string& id) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+        if (!require_valid_uuid(id, callback))
             return;
-        }
         with_repo_errors(callback, "deletePost", [&] {
             Repositories::PostRepository repo;
             repo.remove(id);
@@ -181,15 +161,11 @@ public:
     void previewToken(const HttpRequestPtr& req,
                       std::function<void(const HttpResponsePtr&)>&& callback,
                       const std::string& id) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         API_REQUIRE_ADMIN(req, callback);
-        if (!is_valid_uuid(id)) {
-            callback(ErrorResponse::bad_request("invalid_uuid", "UUID format is invalid"));
+        if (!require_valid_uuid(id, callback))
             return;
-        }
         with_repo_errors(callback, "previewToken", [&] {
             Repositories::PostRepository repo;
             auto found = repo.find(id);
@@ -226,10 +202,8 @@ public:
 
     // ── Public site (unauthenticated) ─────────────────────────────────────
     void publicListPosts(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         // Hybrid contract: server-side filters + 1-based paging (?page=);
         // facets embedded on demand so the index needs exactly one request per
         // interaction. limit is hard-clamped to 50 — the old fetch-the-whole-
@@ -251,9 +225,7 @@ public:
             Repositories::PostRepository repo;
             auto items = repo.list_published_cards(f, limit, offset);
             long total = repo.count_published(f);
-            json data = json::array();
-            for (const auto& e : items)
-                data.push_back(e);
+            json data = items;
             json out = {{"data", data}, {"total", total}, {"limit", limit}, {"offset", offset}};
 
             if (req->getParameter("include").find("facets") != std::string::npos) {
@@ -272,12 +244,9 @@ public:
     void publicGetPost(const HttpRequestPtr& req,
                        std::function<void(const HttpResponsePtr&)>&& callback,
                        const std::string& slug) {
-        if (!Core::content_enabled()) {
-            callback(ErrorResponse::not_found("content"));
+        if (!require_content_enabled(callback))
             return;
-        }
         with_repo_errors(callback, "publicGetPost", [&] {
-            Repositories::PostRepository repo;
             auto found = resolve_post(slug, req->getParameter("preview"));
             if (!found) {
                 callback(ErrorResponse::not_found("post"));
@@ -285,6 +254,7 @@ public:
             }
             json data = json(*found);
             if (req->getParameter("include").find("adjacent") != std::string::npos) {
+                Repositories::PostRepository repo;
                 auto [prev, next] = repo.find_adjacent(found->id);
                 data["adjacent"] = {
                     {"prev", prev ? json{{"slug", prev->slug}, {"title", prev->title}} : json(nullptr)},

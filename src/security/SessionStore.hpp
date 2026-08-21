@@ -14,7 +14,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <string>
 #include <vector>
 
@@ -46,9 +45,10 @@ inline bool record(const Auth::CookieConfig& cfg, const std::string& sub, const 
     // above (and its TTL) still governs validity.
     try {
         auto& redis = Cache::get().get_client();
-        redis.sadd(user_set_key(cfg, sub), jti);
+        const std::string set_key = user_set_key(cfg, sub);
+        redis.sadd(set_key, jti);
         // Keep the set from outliving the longest possible session.
-        redis.expire(user_set_key(cfg, sub), ttl_sec);
+        redis.expire(set_key, ttl_sec);
     } catch (...) {}
     return true;
 }

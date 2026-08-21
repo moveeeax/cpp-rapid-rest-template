@@ -11,7 +11,7 @@
  * @code
  *   auto result = Retry::run(
  *       [&]{ return do_stuff(); },
- *       Retry::is_transient_pqxx,
+ *       Retry::is_transient_pqxx_read,
  *       Retry::Policy{},
  *       "db");
  * @endcode
@@ -24,10 +24,8 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
-#include <functional>
 #include <pqxx/pqxx>
 #include <random>
-#include <stdexcept>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -183,15 +181,6 @@ inline bool is_transient_pqxx_write(const std::exception& e) {
             return true;
     }
     return false;
-}
-
-/**
- * @brief Legacy alias — callers that don't distinguish read/write still
- *        work, but get the liberal read-style behaviour. Prefer the
- *        explicit _read / _write helpers in new code.
- */
-inline bool is_transient_pqxx(const std::exception& e) {
-    return is_transient_pqxx_read(e);
 }
 
 /**

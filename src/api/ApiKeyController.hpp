@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "api/Guards.hpp"
+#include "api/HandlerSupport.hpp"
 #include "api/Validation.hpp"
 #include "repositories/ApiKeyRepository.hpp"
 #include "security/ApiKeys.hpp"
@@ -37,9 +38,7 @@ public:
         API_REQUIRE_OWNER(req, callback, owner);
         Repositories::ApiKeyRepository repo;
         auto keys = repo.list_for_user(owner);
-        json data = json::array();
-        for (const auto& k : keys)
-            data.push_back(k);
+        const json data = to_json_array(keys);
         callback(Response::ok({{"data", data}, {"total", data.size()}}));
     }
 

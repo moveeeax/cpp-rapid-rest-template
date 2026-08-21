@@ -81,6 +81,24 @@ private:
 // first to enforce presence).
 // ---------------------------------------------------------------------------
 
+namespace detail {
+
+/// Shared preamble of the string validators: absent/null → nullptr silently
+/// (presence is require()'s job); non-string → nullptr after recording the
+/// canonical "not_string" error. Otherwise a pointer to the string value.
+inline const std::string* as_string(Errors& errs, const json& body, const std::string& field) {
+    const auto it = body.find(field);
+    if (it == body.end() || it->is_null())
+        return nullptr;
+    if (!it->is_string()) {
+        errs.add(field, "not_string", "must be a string");
+        return nullptr;
+    }
+    return &it->get_ref<const std::string&>();
+}
+
+}  // namespace detail
+
 /**
  * @brief Require a field to be present AND a non-null value.
  */
@@ -116,16 +134,12 @@ inline bool require_string(Errors& errs, const json& body, const std::string& fi
  *        with code "not_string". Missing fields are no-op (pair with require).
  */
 inline void string_length(Errors& errs, const json& body, const std::string& field, size_t min_len, size_t max_len) {
-    if (!body.contains(field) || body[field].is_null())
+    const auto* s = detail::as_string(errs, body, field);
+    if (!s)
         return;
-    if (!body[field].is_string()) {
-        errs.add(field, "not_string", "must be a string");
-        return;
-    }
-    const auto& s = body[field].get_ref<const std::string&>();
-    if (s.size() < min_len) {
+    if (s->size() < min_len) {
         errs.add(field, "too_short", "min length " + std::to_string(min_len));
-    } else if (s.size() > max_len) {
+    } else if (s->size() > max_len) {
         errs.add(field, "too_long", "max length " + std::to_string(max_len));
     }
 }
@@ -135,14 +149,10 @@ inline void string_length(Errors& errs, const json& body, const std::string& fie
  */
 inline void regex_match(
     Errors& errs, const json& body, const std::string& field, const std::regex& re, const std::string& format_hint) {
-    if (!body.contains(field) || body[field].is_null())
+    const auto* s = detail::as_string(errs, body, field);
+    if (!s)
         return;
-    if (!body[field].is_string()) {
-        errs.add(field, "not_string", "must be a string");
-        return;
-    }
-    const auto& s = body[field].get_ref<const std::string&>();
-    if (!std::regex_match(s, re)) {
+    if (!std::regex_match(*s, re)) {
         errs.add(field, "bad_format", "expected format: " + format_hint);
     }
 }
@@ -181,15 +191,11 @@ inline void boolean(Errors& errs, const json& body, const std::string& field) {
  * @brief Require a string field to be one of a fixed set of values.
  */
 inline void one_of(Errors& errs, const json& body, const std::string& field, const std::vector<std::string>& allowed) {
-    if (!body.contains(field) || body[field].is_null())
+    const auto* s = detail::as_string(errs, body, field);
+    if (!s)
         return;
-    if (!body[field].is_string()) {
-        errs.add(field, "not_string", "must be a string");
-        return;
-    }
-    const auto& s = body[field].get_ref<const std::string&>();
     for (const auto& a : allowed)
-        if (s == a)
+        if (*s == a)
             return;
     std::string msg = "must be one of:";
     for (const auto& a : allowed) {
@@ -245,7 +251,7 @@ inline bool parse_body(const drogon::HttpRequestPtr& req,
                        json& out,
                        std::function<void(const drogon::HttpResponsePtr&)>& cb) {
     try {
-        out = json::parse(std::string(req->body()));
+        out = json::parse(req->body());
         return true;
     } catch (...) {
         cb(ErrorResponse::bad_request("invalid_json", "Invalid JSON body"));

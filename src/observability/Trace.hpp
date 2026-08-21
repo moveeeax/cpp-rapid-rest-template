@@ -21,13 +21,16 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
-#include <cstring>
 #include <optional>
 #include <random>
 #include <string>
 #include <string_view>
+
+#include <opentelemetry/nostd/span.h>
+#include <opentelemetry/trace/span_context.h>
 
 namespace Observability::Trace {
 
@@ -43,16 +46,48 @@ struct TraceContext {
 
 namespace detail {
 
-inline bool is_hex_lower(char c) {
-    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+inline bool is_hex_char(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
 inline bool is_hex_string(std::string_view s, size_t expected_len) {
     if (s.size() != expected_len)
         return false;
     for (char c : s)
-        if (!is_hex_lower(c))
+        if (!is_hex_char(c))
             return false;
+    return true;
+}
+
+inline std::string to_lower_ascii(std::string_view s) {
+    std::string out(s);
+    std::transform(
+        out.begin(), out.end(), out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return out;
+}
+
+/**
+ * @brief Hex string → fixed-size byte buffer (for TraceId/SpanId).
+ * @return false if the input length doesn't match or has a non-hex char.
+ */
+inline bool hex_to_bytes(std::string_view hex, uint8_t* out, size_t n) {
+    if (hex.size() != n * 2)
+        return false;
+    auto nibble = [](char c) -> int {
+        if (c >= '0' && c <= '9')
+            return c - '0';
+        if (c >= 'a' && c <= 'f')
+            return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F')
+            return c - 'A' + 10;
+        return -1;
+    };
+    for (size_t i = 0; i < n; ++i) {
+        const int hi = nibble(hex[2 * i]), lo = nibble(hex[2 * i + 1]);
+        if (hi < 0 || lo < 0)
+            return false;
+        out[i] = static_cast<uint8_t>((hi << 4) | lo);
+    }
     return true;
 }
 
@@ -98,21 +133,20 @@ inline bool is_all_zero_hex(std::string_view s) {
  * @return nullopt if the header is malformed or the ID is all zeros.
  */
 inline std::optional<TraceContext> parse_traceparent(std::string_view header) {
-    // Lowercase copy for case-insensitive hex comparison (the spec allows
-    // lowercase only, but upstreams sometimes send mixed case).
-    std::string lower(header);
-    std::transform(
-        lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    // Parsed straight off the caller's view — no lowercase copy of the whole
+    // header. Hex validation is case-insensitive (the spec allows lowercase
+    // only, but upstreams sometimes send mixed case); the stored components
+    // are lowercased individually below.
 
     // Expect "version-traceid-spanid-flags" — 4 dash-separated components.
     std::array<std::string_view, 4> parts{};
     size_t idx = 0;
     size_t start = 0;
-    for (size_t i = 0; i <= lower.size(); ++i) {
-        if (i == lower.size() || lower[i] == '-') {
+    for (size_t i = 0; i <= header.size(); ++i) {
+        if (i == header.size() || header[i] == '-') {
             if (idx >= 4)
                 return std::nullopt;
-            parts[idx++] = std::string_view(lower).substr(start, i - start);
+            parts[idx++] = header.substr(start, i - start);
             start = i + 1;
         }
     }
@@ -130,9 +164,9 @@ inline std::optional<TraceContext> parse_traceparent(std::string_view header) {
         return std::nullopt;
     }
     TraceContext ctx;
-    ctx.trace_id = std::string(parts[1]);
-    ctx.parent_id = std::string(parts[2]);
-    ctx.flags = std::string(parts[3]);
+    ctx.trace_id = detail::to_lower_ascii(parts[1]);
+    ctx.parent_id = detail::to_lower_ascii(parts[2]);
+    ctx.flags = detail::to_lower_ascii(parts[3]);
     return ctx;
 }
 
@@ -165,6 +199,24 @@ inline TraceContext extract_or_generate(std::string_view traceparent_header) {
             return *parsed;
     }
     return generate_context();
+}
+
+/**
+ * @brief Build a remote OTel SpanContext from a parsed W3C traceparent, so
+ *        our server span JOINS the caller's distributed trace instead of
+ *        starting an unrelated root.
+ */
+inline std::optional<opentelemetry::trace::SpanContext> to_remote_span_context(const TraceContext& t) {
+    uint8_t tid[16], sid[8], flags[1];
+    if (!detail::hex_to_bytes(t.trace_id, tid, 16) || !detail::hex_to_bytes(t.parent_id, sid, 8) ||
+        !detail::hex_to_bytes(t.flags, flags, 1)) {
+        return std::nullopt;
+    }
+    return opentelemetry::trace::SpanContext(
+        opentelemetry::trace::TraceId(opentelemetry::nostd::span<const uint8_t, 16>(tid)),
+        opentelemetry::trace::SpanId(opentelemetry::nostd::span<const uint8_t, 8>(sid)),
+        opentelemetry::trace::TraceFlags(flags[0]),
+        /*is_remote=*/true);
 }
 
 // ---------------------------------------------------------------------------
