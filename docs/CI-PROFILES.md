@@ -11,6 +11,11 @@ here was learned the expensive way on downstream forks of this template.
   and `tsan` each get their own VM, so parallelism costs nothing; each pulls
   builder layers from the gha/GHCR caches independently. Serializing them on
   hosted runners only stretches the wall clock.
+- **Cheap jobs stay unconditional.** `openapi-drift` and `gate-selftest`
+  (`scripts/check-selftest.sh` — plants 12 breakages and requires every
+  `check-*` gate to catch and name them; needs helm+yq, ~minutes) run on
+  every push/PR with no `paths:` filter, because a path-skipped required job
+  reports success — the "skipped job goes green" trap.
 - **Three cache layers.** `cache-from` lists `type=gha` plus
   `ghcr.io/<repo>/builder:cache`. The gha cache is evicted aggressively
   (7 days / 10 GB); the GHCR layer survives, EXCEPT after a vcpkg baseline
