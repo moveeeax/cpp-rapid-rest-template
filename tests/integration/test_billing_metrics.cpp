@@ -28,6 +28,7 @@
 #include <nlohmann/json.hpp>
 
 #include "api/AdminBillingController.hpp"
+#include "billing/PayPalClient.hpp"
 #include "billing/Wallet.hpp"
 #include "database/Database.hpp"
 #include "domain/Billing.hpp"
