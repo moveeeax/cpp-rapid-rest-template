@@ -15,7 +15,7 @@
 #include <drogon/HttpResponse.h>
 
 #include "api/RequestUtils.hpp"
-#include "core/Core.hpp"
+#include "core/Modules.hpp"
 #include "security/Auth.hpp"
 #include "utils/ErrorResponse.hpp"
 

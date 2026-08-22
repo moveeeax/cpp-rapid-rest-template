@@ -41,6 +41,7 @@
 
 #include "jobs/Jobs.hpp"
 #include "utils/Config.hpp"
+#include "utils/CurlInit.hpp"
 #include "utils/Strings.hpp"
 
 namespace Email {
@@ -67,16 +68,10 @@ struct Message {
 
 namespace detail {
 
-/**
- * @brief One-shot global libcurl init. CURL needs `curl_global_init` once
- *        per process before any `curl_easy_*` calls. Sodium-style
- *        idempotent guard.
- */
-inline void ensure_curl_init() {
-    static const CURLcode rc = ::curl_global_init(CURL_GLOBAL_DEFAULT);
-    if (rc != CURLE_OK)
-        throw std::runtime_error(std::string("curl_global_init failed: ") + curl_easy_strerror(rc));
-}
+// One-shot global libcurl init — moved to utils/CurlInit.hpp so Webhooks can
+// share it without including this header. Kept visible as
+// Email::detail::ensure_curl_init for existing callers.
+using Utils::ensure_curl_init;
 
 inline std::string format_rfc5322_date() {
     std::time_t t = std::time(nullptr);

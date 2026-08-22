@@ -23,9 +23,9 @@
 
 #include <nlohmann/json.hpp>
 
-#include "email/Mailer.hpp"  // detail::ensure_curl_init (one-shot curl_global_init)
 #include "jobs/Jobs.hpp"
 #include "utils/Crypto.hpp"
+#include "utils/CurlInit.hpp"
 
 namespace Webhooks {
 
@@ -89,7 +89,7 @@ inline json process_job(const json& payload) {
     if (detail::host_is_blocked(host))
         throw std::runtime_error("webhook: refusing to POST to internal host: " + host);
 
-    Email::detail::ensure_curl_init();
+    Utils::ensure_curl_init();
     std::unique_ptr<CURL, void (*)(CURL*)> h(curl_easy_init(), curl_easy_cleanup);
     if (!h)
         throw std::runtime_error("webhook: curl_easy_init failed");

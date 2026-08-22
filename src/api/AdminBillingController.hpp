@@ -48,7 +48,7 @@
 #include "api/RequestUtils.hpp"
 #include "api/Validation.hpp"
 #include "billing/Wallet.hpp"
-#include "core/Core.hpp"
+#include "core/Modules.hpp"
 #include "domain/Billing.hpp"
 #include "email/BillingEmails.hpp"
 #include "repositories/BillingMetricsRepository.hpp"
