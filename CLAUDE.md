@@ -52,7 +52,17 @@ gates by construction. Hand-rolled versions usually don't.
    non-empty credential Secret). In `.gitleaks.toml` the `[extend]
    useDefault` block is load-bearing — without it gitleaks v8 scans with
    zero rules; allowlist by VALUE regex, never by path.
-8. **Commits:** conventional commits, no AI-attribution trailers.
+8. **Module dependency DAG** (`scripts/check-module-deps.sh`): every
+   cross-directory `#include` in `src/` must be an edge declared in
+   `docs/module-deps.txt`. Hard rules: `utils/` includes only `utils/`;
+   `core/Core.hpp` (the composition root) is included ONLY by
+   `src/main.cpp`, `src/worker_main.cpp` and `src/api/HealthController.hpp`
+   — for `Core::<module>_enabled()` / `Core::is_shutting_down()` include
+   the tiny `core/Modules.hpp`; `webhooks` never includes `email` (shared
+   curl bootstrap lives in `utils/CurlInit.hpp`). `api/Api.hpp` is included
+   only by binary entry points (main.cpp, tests/e2e) — tests include the
+   specific controller header they exercise.
+9. **Commits:** conventional commits, no AI-attribution trailers.
 
 ## Gate sequence — run cheapest-first before pushing
 
@@ -60,9 +70,10 @@ gates by construction. Hand-rolled versions usually don't.
    is major 17, the CI pin; fix: `pip install clang-format==17.0.6`)
 2. `./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
    && ./scripts/check-test-buckets.sh && ./scripts/check-version-sync.sh
-   && ./scripts/check-frontend-nginx-sync.sh` — seconds, no build.
+   && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh`
+   — seconds, no build.
    Touched a `check-*` script? Also run `./scripts/check-selftest.sh` —
-   plants 12 breakages and requires every gate to catch and name them
+   plants 14 breakages and requires every gate to catch and name them
    (needs helm+yq; CI runs it unconditionally as `gate-selftest`)
 3. `make lint-openapi` — spectral over `docs/openapi.yaml`
 4. `make test-quick` — cached test image, ~5 s

@@ -79,7 +79,7 @@
 #include "api/Validation.hpp"
 #include "billing/PayPalClient.hpp"
 #include "billing/Wallet.hpp"
-#include "core/Core.hpp"
+#include "core/Modules.hpp"
 #include "domain/Billing.hpp"
 #include "email/BillingEmails.hpp"
 #include "repositories/BillingRepository.hpp"

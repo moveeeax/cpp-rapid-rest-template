@@ -22,7 +22,7 @@
 
 #include "api/HandlerSupport.hpp"
 #include "api/PostsController.hpp"
-#include "core/Core.hpp"
+#include "core/Modules.hpp"
 #include "repositories/PostRepository.hpp"
 #include "utils/Config.hpp"
 

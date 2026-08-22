@@ -4,7 +4,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "api/Api.hpp"
+#include "api/JobsController.hpp"
 #include "test_fixtures.hpp"
 #include "test_helpers.hpp"
 
