@@ -65,10 +65,13 @@ gates by construction. Hand-rolled versions usually don't.
    plants 12 breakages and requires every gate to catch and name them
    (needs helm+yq; CI runs it unconditionally as `gate-selftest`)
 3. `make lint-openapi` — spectral over `docs/openapi.yaml`
-4. `make test-quick` — cached test image, ~5 s
-5. `make test` — full rebuild + suite, ~2 min; what CI runs
-6. `make helm-lint` — only if `helm/` was touched
-7. `make ci-local` — full local reproduction of CI
+4. `make test` — rebuild (docker layer cache) + full suite, ~2 min warm;
+   what CI runs. `make test-quick` is an honest alias for it. `make
+   test-rerun` re-runs the previous binaries WITHOUT rebuilding — flake
+   triage only, code edits do NOT land in it. Fastest inner loop for code
+   changes: native `make test-local NAME='Foo*'` (docs/TESTING.md)
+5. `make helm-lint` — only if `helm/` was touched
+6. `make ci-local` — full local reproduction of CI
 
 CI additionally runs clang-tidy, ASan+UBSan (+TSAN), gitleaks, helm-render,
 the OpenAPI-drift gate and the gate selftest; C++ compiles in CI go through sccache backed by

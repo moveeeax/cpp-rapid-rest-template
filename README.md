@@ -289,8 +289,11 @@ Typical order:
    a repository that owns every SQL string and raises typed exceptions).
 4. **`make dev`** — rebuilds and restarts just the app container (no full
    stack restart, Postgres volume stays put).
-5. **`make test-quick`** — the fast TDD loop; runs against the cached
-   test-runner image in ~5 s instead of the ~2 min cold rebuild of `make test`.
+5. **`make test`** — rebuilds the test image with the docker layer cache
+   (~2 min warm) and runs the full suite. For the fastest edit-compile-test
+   loop use the native `make test-local NAME='Foo*'`; `make test-rerun`
+   re-runs the previous binaries without rebuilding (flake triage only —
+   code edits do not land in it).
 6. **Verify migrations didn't drift** — `docker compose exec app ./cpp_api_template --verify-migrations` exits
    non-zero if anything is pending.
 7. **Background work** — `./scripts/new-job.sh reindex` (or
@@ -303,7 +306,9 @@ Typical order:
 | Command | When to use |
 |---|---|
 | `make test` | Cold run — rebuilds the test image, full suite, ~2 min |
-| `make test-quick` | Fast TDD loop — reuses cached image, ~5 s |
+| `make test-quick` | Alias for `make test` (rebuild with layer cache — honest, so edits actually run) |
+| `make test-rerun` | Re-run binaries from the existing image — no rebuild, flake triage only |
+| `make test-local NAME='Foo*'` | Fastest TDD loop — native incremental build + `--gtest_filter` |
 | `make test-unit` | Only unit tests; skips anything needing Postgres/Redis |
 | `make test-e2e` | HTTP end-to-end binary: real Drogon server + client, middleware on the wire |
 
@@ -541,7 +546,7 @@ docs/            openapi.yaml, CONFIG.md, EXAMPLES.md, INDEX.md, adr/, Doxyfile
 | `make warm-cache` | Pull the CI-built builder image — skip the cold vcpkg compile |
 | `make build-local` | Native cmake build via the `dev` preset, no Docker |
 | `make compile-commands` | Generate `compile_commands.json` for clangd |
-| `make test` / `make test-quick` | Full / cached suite in Docker |
+| `make test` / `make test-rerun` | Full suite in Docker / rerun-only (no rebuild, flakes) |
 | `make test-local NAME=Jobs*` | Native gtest run with a `--gtest_filter` |
 | `make test-watch` | Re-run unit tests on src/ or tests/ change (watchexec or entr) |
 | `make watch` | Rebuild + restart on `src/` change (entr or watchexec) |
