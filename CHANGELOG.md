@@ -27,6 +27,20 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
   (`detail::via_jobs()` body moved to `email/Mailer.cpp`) — the
   email↔jobs include cycle is now broken at the header level. No behavior
   change.
+- The composition root and the middleware chain are de-inlined the same way
+  — non-template bodies of `core/Core` (`Core::Application`
+  initialize/shutdown orchestration, metric registrars, health registry,
+  singleton) and `api/Middleware` (the whole advice chain, access log, HTTP
+  metrics, docs endpoints) moved to paired `.cpp` files in `app_core`.
+  `core/Core.hpp` no longer includes the 13 subsystem headers
+  (database/pqxx, cache/redis++, jobs, Kafka, PayPal, mailer, storage,
+  OTel/prometheus, ...) — those live in `Core.cpp`; `api/Middleware.hpp` no
+  longer pulls the OTel SDK, spdlog or the security module headers into
+  `Api.hpp` includers (only the drogon request/response types survive in
+  signatures). File-local state (the middleware metric families, HSTS
+  values, `global_app`) moved to anonymous namespaces in the `.cpp` files;
+  `check-module-deps.sh` now allowlists `core/Core.cpp` as Core.hpp's own
+  body file. No behavior change.
 
 ### Added
 - Billing module (`BILLING_ENABLED`, off by default) — ported from the site

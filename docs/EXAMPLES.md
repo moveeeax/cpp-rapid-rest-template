@@ -367,7 +367,7 @@ Controller responsibilities — and nothing else:
 `src/api/HandlerSupport.hpp`; `parse_page_params` is an inline helper in
 `src/api/RequestUtils.hpp` (alongside `parse_int`, `clamp_int`,
 `normalize_path_for_metrics`). The HTTP middleware
-wired in `Api::register_controllers()` (bodies in `src/api/Middleware.hpp`)
+wired in `Api::register_controllers()` (bodies in `src/api/Middleware.cpp`)
 handles tracing spans — handlers don't open their own.
 
 If your resource is a toggleable feature module (like the shipped content
