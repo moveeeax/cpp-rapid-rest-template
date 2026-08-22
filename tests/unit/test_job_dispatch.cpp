@@ -1,6 +1,6 @@
 /**
  * @file test_job_dispatch.cpp
- * @brief Unit tests for the header-only Jobs::Dispatcher — the job-type→handler
+ * @brief Unit tests for Jobs::Dispatcher — the job-type→handler
  *        registry extracted from worker_main.cpp. Pure logic: no Postgres/Redis,
  *        so it lives in the unit bucket and exercises the dispatch + unknown-type
  *        path that the old in-.cpp if-ladder left untestable.
@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "email/AccountEmailWorker.hpp"  // Email::AccountEmails::kJobType
 #include "jobs/BuiltinHandlers.hpp"
 #include "jobs/Dispatcher.hpp"
 #include "jobs/Job.hpp"
@@ -70,8 +71,8 @@ TEST(JobDispatchTest, UnregisteredReportsTypesWithoutHandlers) {
 TEST(JobDispatchTest, BuiltinHandlersAreRegistered) {
     // Guards the if-ladder→Dispatcher refactor: dropping/renaming a built-in
     // (esp. account_email) would silently dead-letter real jobs with no other
-    // failing test. register_builtin_handlers() lives in a header for exactly
-    // this reason.
+    // failing test. register_builtin_handlers() was extracted from
+    // worker_main.cpp into the jobs module for exactly this reason.
     Jobs::register_builtin_handlers();
     auto& d = Jobs::Dispatcher::get();
     EXPECT_TRUE(d.has_handler(Email::AccountEmails::kJobType));

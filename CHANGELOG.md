@@ -17,6 +17,16 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
   including TU. CMake GLOBs `src/**/*.cpp` into `app_core`, so future
   module `.cpp` files link with no CMake edit; the PCH is owned by
   `app_core` and reused by the app/worker binaries. No behavior change.
+- The jobs module is de-inlined the same way — non-template bodies of
+  `jobs/Jobs` (the `JobQueue` manager), `jobs/Dispatcher` and
+  `jobs/BuiltinHandlers` moved to paired `.cpp` files in `app_core`
+  (`jobs/Job.hpp` stays header-only: domain struct + key helpers per
+  ADR 0003). Jobs headers no longer drag redis++/spdlog/Cache/Trace or the
+  email/webhooks handler headers into including TUs, and
+  `email/Mailer.hpp` no longer includes `jobs/Jobs.hpp`
+  (`detail::via_jobs()` body moved to `email/Mailer.cpp`) — the
+  email↔jobs include cycle is now broken at the header level. No behavior
+  change.
 
 ### Added
 - Billing module (`BILLING_ENABLED`, off by default) — ported from the site
