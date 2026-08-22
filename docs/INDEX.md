@@ -29,7 +29,7 @@ question instead of grepping the tree.
 | [`../src/billing/Wallet.hpp`](../src/billing/Wallet.hpp) | Billing module core (PayPal top-ups → credit wallet): append-only ledger, idempotent capture/refund — the canonical example of the no-self-referencing-upsert accumulation pattern. Controllers in `src/api/BillingController.hpp` / `AdminBillingController.hpp`, transactional emails in `src/email/BillingEmails.hpp` |
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 spec for every registered route. `scripts/check-openapi-drift.sh` keeps it honest; `frontend/npm run gen:api` consumes it for typed client |
 | [`Doxyfile`](Doxyfile) | `make docs` configuration; output goes to `docs/html/` (gitignored) |
-| [`superpowers/`](superpowers/) | Archived design specs + implementation plans for past feature waves (content module, bench nightly, hygiene/hardening waves) |
+| [`superpowers/`](superpowers/) | Design specs + implementation plans: the ACTIVE modularity target design (`specs/2026-08-22-modularity-design.md`) and archived past waves (content module, bench nightly, hygiene/hardening) |
 
 ## Frontend
 

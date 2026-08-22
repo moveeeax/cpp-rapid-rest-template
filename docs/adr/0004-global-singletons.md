@@ -69,3 +69,14 @@ instance.
 - **Pass references explicitly** through controllers. Adds a parameter to
   every controller method and middleware function — high friction for a
   speculative win.
+
+## Update — 2026-08-22 (modularity review)
+
+The "Costs: no seam for substitution" paragraph is stale in our favor:
+the codebase grew `install_for_testing` seams (Cache, Auth, Storage,
+Billing/PayPalClient) and they carry real tests. The amended norm is
+**"singleton with an `install_for_testing` seam"** — Database is the
+one module still missing its seam and gains it in Phase 1 of the
+modularity plan. A DI container was re-evaluated and rejected again
+(ADR 0007). Full design:
+`docs/superpowers/specs/2026-08-22-modularity-design.md`.
