@@ -6,6 +6,18 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- `app_core` is now a STATIC library (was INTERFACE) and the billing module
+  is de-inlined into it — non-template bodies of `billing/Wallet`,
+  `billing/PayPalClient`, `api/BillingController`,
+  `api/AdminBillingController` and `email/BillingEmails` moved to paired
+  `.cpp` files compiled ONCE instead of once per binary (Phase 2 of the
+  modularity design, ADR 0003 amended). Headers slimmed accordingly:
+  `PayPalClient.hpp` no longer drags `curl.h`/json/spdlog into every
+  including TU. CMake GLOBs `src/**/*.cpp` into `app_core`, so future
+  module `.cpp` files link with no CMake edit; the PCH is owned by
+  `app_core` and reused by the app/worker binaries. No behavior change.
+
 ### Added
 - Billing module (`BILLING_ENABLED`, off by default) — ported from the site
   fork (#24): PayPal checkout top-ups credited to an append-only wallet
