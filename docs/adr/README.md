@@ -21,3 +21,4 @@ record that supersedes the old one (and link both ways).
 - [0004 — Global singletons for subsystems](0004-global-singletons.md)
 - [0005 — Frontend lives in a separate React SPA](0005-spa-split.md)
 - [0006 — API versioning: URL-path `/api/v1`, additive-only](0006-api-versioning.md)
+- [0007 — Rejected modularity alternatives: plugins, API DSL, DI container](0007-rejected-modularity-alternatives.md)

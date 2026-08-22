@@ -57,3 +57,16 @@ Standard `.hpp` + `.cpp` split — doubles file count, slows incremental
 builds for new contributors who edit `.hpp` (everything rebuilds anyway).
 The wins (precompiled headers, parallel compilation) only kick in past a
 codebase size we haven't reached.
+
+## Update — 2026-08-22 (modularity review)
+
+Two of the revisit conditions above have fired:
+`src/api/BillingController.hpp` crossed ~1000 lines (1020), and the
+integration-bucket ASan build OOMs precisely because heavy bodies
+compile per-TU (see the docker/Dockerfile note deferring it to
+"app_core"). The decision is amended, not reversed: **header-only stays
+for leaf utilities, domain structs and all template code; modules past
+the `scripts/bench-incremental.sh` threshold get their non-template
+bodies de-inlined into `.cpp` inside the `app_core` STATIC library**
+(the plan already sketched in CMakeLists.txt). Full design:
+`docs/superpowers/specs/2026-08-22-modularity-design.md`.
