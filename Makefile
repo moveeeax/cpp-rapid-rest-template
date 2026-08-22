@@ -35,7 +35,7 @@ ENV     := --env-file docker/.env
 
 .PHONY: up up-pull up-replica up-sentinel up-kafka up-worker up-full up-monitoring \
         up-everything up-dev quickstart dev down down-v dev-reset \
-        test test-unit test-quick test-e2e test-local test-unit-local test-integration-local test-watch \
+        test test-unit test-quick test-rerun test-e2e test-local test-unit-local test-integration-local test-watch \
         build build-worker build-all build-local warm-cache configure-local compile-commands \
         watch coverage \
         logs logs-pretty logs-worker tail-trace ps health routes doctor env-check prod-check \
@@ -149,9 +149,19 @@ test:              ## Run all tests in Docker (rebuild image, ~2 min cold)
 test-e2e:          ## Run the HTTP end-to-end binary (real Drogon server + client)
 	$(COMPOSE) $(ENV) --profile test run --rm -e TEST_BINARY=cpp_api_template_e2e test-runner
 
-test-quick:        ## Re-run tests against existing image (no rebuild, ~5 s)
-	@# Fast TDD loop: rebuild the test-runner layer only if it already exists,
-	@# otherwise fall through to the full `make test`. Good for "edit test, run".
+test-quick:        ## Rebuild test image (layer cache) + full suite — alias for `test` (~2 min warm)
+	@# Honest alias: this USED to skip the rebuild when an image existed, which
+	@# meant code edits silently never reached the run (a "~5 s green" that
+	@# proved nothing). Rebuilding with the layer cache costs real compile time
+	@# but tests what you actually wrote. For a rerun-only loop (flake triage)
+	@# use `make test-rerun`; for the fastest edit-compile-test loop use the
+	@# native `make test-local NAME='Foo*'`.
+	@$(MAKE) --no-print-directory test
+
+test-rerun:        ## Re-run test binaries against the EXISTING image (code is NOT rebuilt — for flakes)
+	@# Reruns the last-built test-runner image as-is. Source edits DO NOT land
+	@# in this run — use it to re-check a flaky test, never to verify a change.
+	@# Falls through to the full `make test` when no image exists yet.
 	@if docker image inspect $${TEST_IMAGE:-cpp-rapid-rest-template:test-latest} >/dev/null 2>&1; then \
 		$(COMPOSE) $(ENV) --profile test run --rm -e TEST_BINARY=cpp_api_template_tests_unit test-runner && \
 		$(COMPOSE) $(ENV) --profile test run --rm -e TEST_BINARY=cpp_api_template_tests_integration test-runner ; \
