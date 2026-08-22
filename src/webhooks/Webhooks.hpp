@@ -16,6 +16,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include <curl/curl.h>

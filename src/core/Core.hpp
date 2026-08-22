@@ -7,6 +7,7 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
