@@ -194,25 +194,34 @@ set(COMMON_LIBS
 # it carries the shared third-party deps + the src/generated include dirs, so a
 # new dependency is added in ONE place and every target picks it up.
 #
-# It is an INTERFACE library today because the application code is still
-# header-only/inline — there is nothing to compile ONCE yet. The next step
-# toward a true compiled core (faster incremental builds, the prerequisite the
-# deferred multi-arch/ASan matrices were waiting on) is to de-inline modules
-# into app_core's own sources (declaration in .hpp, definition in a .cpp added
-# here via target_sources), turning this into a STATIC library. That is a large,
-# mechanical, build-touching change across ~60 headers — kept as a deliberate
-# follow-up so it can't destabilise the build mid-stream; the HEAVY_PCH below
-# already absorbs most of the per-TU third-party parse cost in the meantime.
-add_library(app_core INTERFACE)
-target_link_libraries(app_core INTERFACE ${COMMON_LIBS})
-target_include_directories(app_core INTERFACE
+# STATIC since the Phase 2 modularity work (spec:
+# docs/superpowers/specs/2026-08-22-modularity-design.md; ADR 0003's 2026-08-22
+# amendment): de-inlined module bodies live in src/**/*.cpp and compile ONCE
+# here instead of once per binary. The GLOB mirrors the test-source GLOBs
+# below — a new src/<dir>/Foo.cpp is picked up automatically (CONFIGURE_DEPENDS
+# re-runs the glob per build); only the two binary entry points are excluded,
+# they stay per-executable. Modules are de-inlined by measured weight
+# (scripts/bench-incremental.sh), one module per PR — billing first.
+file(GLOB_RECURSE APP_CORE_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
+list(REMOVE_ITEM APP_CORE_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/main.cpp
+    ${CMAKE_SOURCE_DIR}/src/worker_main.cpp
+)
+add_library(app_core STATIC ${APP_CORE_SOURCES})
+# PUBLIC (was INTERFACE): app_core's own .cpp files compile against these
+# deps/include dirs too, and every linking binary still inherits them.
+target_link_libraries(app_core PUBLIC ${COMMON_LIBS})
+target_include_directories(app_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated
 )
 
-# Precompiled headers: the framework headers below dominate compile time in
-# a header-only codebase (every TU re-parses Drogon + pqxx + redis++ + json).
-# Worker/tests/e2e reuse the same PCH where flags allow.
+# Precompiled headers: the framework headers below dominate compile time
+# (every TU re-parses Drogon + pqxx + redis++ + json). app_core owns the
+# canonical PCH; the app/worker binaries REUSE_FROM it (a REUSE_FROM source
+# must own its PCH outright, so both binaries point at app_core directly —
+# never at each other). The test binaries need <gtest/gtest.h> on top, so
+# tests_unit builds its own PCH and integration/e2e reuse THAT one.
 set(HEAVY_PCH
     <drogon/drogon.h>
     <drogon/HttpController.h>
@@ -224,20 +233,21 @@ set(HEAVY_PCH
     # AccountEmails -> Templates for the inline-send fallback. Precompile it.
     <inja/inja.hpp>
 )
+target_precompile_headers(app_core PRIVATE ${HEAVY_PCH})
 
 # Create main executable
 add_executable(${PROJECT_NAME}
     src/main.cpp
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE app_core)
-target_precompile_headers(${PROJECT_NAME} PRIVATE ${HEAVY_PCH})
+target_precompile_headers(${PROJECT_NAME} REUSE_FROM app_core)
 
 # Create worker executable
 add_executable(${PROJECT_NAME}_worker
     src/worker_main.cpp
 )
 target_link_libraries(${PROJECT_NAME}_worker PRIVATE app_core)
-target_precompile_headers(${PROJECT_NAME}_worker REUSE_FROM ${PROJECT_NAME})
+target_precompile_headers(${PROJECT_NAME}_worker REUSE_FROM app_core)
 
 # Enable testing
 enable_testing()
