@@ -5,7 +5,8 @@
  *            - Endpoints.hpp    — route registry (single source of truth)
  *            - RequestUtils.hpp — parse_int / clamp_int / pagination helpers
  *            - Guards.hpp       — handler-entry macros (admin / principal / jobs)
- *            - Middleware.hpp   — advice chain + OTel glue (the heavy include)
+ *            - Middleware.hpp   — advice chain (declarations; the OTel glue
+ *                                 lives in Middleware.cpp inside app_core)
  *          Controllers include the first three directly and must NOT include
  *          this header (that used to form an include cycle).
  *

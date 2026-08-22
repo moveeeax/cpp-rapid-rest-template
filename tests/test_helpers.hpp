@@ -24,6 +24,7 @@
 #include "security/Auth.hpp"
 #include "tasks/Tasks.hpp"
 #include "utils/Config.hpp"
+#include "utils/Retry.hpp"
 
 namespace TestHelpers {
 
