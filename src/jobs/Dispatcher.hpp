@@ -8,6 +8,10 @@
  *             the worker process.
  *        dispatch() throws Jobs::PermanentJobError on an unknown type, which the
  *        worker routes straight to the DLQ (no retry storm).
+ *
+ * Non-trivial bodies live in Dispatcher.cpp (compiled once into app_core;
+ * ADR 0003 as amended 2026-08-22). The nlohmann json alias arrives via
+ * jobs/Job.hpp.
  */
 
 #pragma once
@@ -15,15 +19,12 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-
-#include "jobs/Job.hpp"  // Job + PermanentJobError
+#include "jobs/Job.hpp"  // Job + PermanentJobError + json alias
 
 namespace Jobs {
-
-using json = nlohmann::json;
 
 class Dispatcher {
 public:
@@ -31,10 +32,7 @@ public:
     /// a std::exception → retry then DLQ; a PermanentJobError → straight to DLQ.
     using Handler = std::function<json(const json& payload)>;
 
-    static Dispatcher& get() {
-        static Dispatcher instance;
-        return instance;
-    }
+    static Dispatcher& get();
 
     void register_handler(const std::string& type, Handler fn) { handlers_[type] = std::move(fn); }
 
@@ -42,35 +40,18 @@ public:
 
     /// Registered type strings — the source of truth for "valid job types"
     /// (e.g. to validate WORKER_TYPES at startup).
-    std::vector<std::string> known_types() const {
-        std::vector<std::string> out;
-        out.reserve(handlers_.size());
-        for (const auto& kv : handlers_)
-            out.push_back(kv.first);
-        return out;
-    }
+    std::vector<std::string> known_types() const;
 
     /// Of @p subscribed job types, those with NO registered handler. Used at
     /// worker startup to surface a WORKER_TYPES entry that would silently
     /// dead-letter every job of that type (a producer/consumer mismatch),
     /// instead of pretending to subscribe to it.
-    std::vector<std::string> unregistered(const std::vector<std::string>& subscribed) const {
-        std::vector<std::string> out;
-        for (const auto& t : subscribed)
-            if (handlers_.find(t) == handlers_.end())
-                out.push_back(t);
-        return out;
-    }
+    std::vector<std::string> unregistered(const std::vector<std::string>& subscribed) const;
 
     /// Run the handler for @p job.type. Throws PermanentJobError if no handler
     /// is registered — surfacing a producer/consumer mismatch loudly instead of
     /// faking success, and without burning the retry budget.
-    json dispatch(const Job& job) const {
-        auto it = handlers_.find(job.type);
-        if (it == handlers_.end())
-            throw PermanentJobError("no handler for job type: " + job.type);
-        return it->second(job.payload);
-    }
+    json dispatch(const Job& job) const;
 
 private:
     std::unordered_map<std::string, Handler> handlers_;

@@ -39,7 +39,6 @@
 #include <curl/curl.h>
 #include <spdlog/spdlog.h>
 
-#include "jobs/Jobs.hpp"
 #include "utils/Config.hpp"
 #include "utils/CurlInit.hpp"
 #include "utils/Strings.hpp"
@@ -200,14 +199,12 @@ inline size_t read_cb(char* dest, size_t size, size_t nmemb, void* userp) {
  * @brief Route outbound mail through the Jobs queue? Shared policy check of
  *        the AccountEmails and SendEmail dispatch paths: requires Jobs to be
  *        up, and honors the mail.via_jobs / MAIL_VIA_JOBS toggle (default on).
+ *
+ * Body lives in Mailer.cpp (app_core) so this header no longer includes
+ * jobs/Jobs.hpp — that include was the email→jobs half of the email↔jobs
+ * header cycle (the jobs→email half died with BuiltinHandlers.cpp).
  */
-inline bool via_jobs() {
-    if (!Jobs::is_initialized())
-        return false;
-    if (Config::is_initialized())
-        return Config::get().get<bool>("mail.via_jobs", "MAIL_VIA_JOBS", true);
-    return true;
-}
+bool via_jobs();
 
 }  // namespace detail
 
