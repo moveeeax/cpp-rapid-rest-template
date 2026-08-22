@@ -62,7 +62,8 @@ gates by construction. Hand-rolled versions usually don't.
    cross-directory `#include` in `src/` must be an edge declared in
    `docs/module-deps.txt`. Hard rules: `utils/` includes only `utils/`;
    `core/Core.hpp` (the composition root) is included ONLY by
-   `src/main.cpp`, `src/worker_main.cpp` and `src/api/HealthController.hpp`
+   `src/main.cpp`, `src/worker_main.cpp`, `src/api/HealthController.hpp`
+   and its own body file `src/core/Core.cpp`
    — for `Core::<module>_enabled()` / `Core::is_shutting_down()` include
    the tiny `core/Modules.hpp`; `webhooks` never includes `email` (shared
    curl bootstrap lives in `utils/CurlInit.hpp`). `api/Api.hpp` is included

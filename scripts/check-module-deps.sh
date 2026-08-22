@@ -33,7 +33,8 @@ DEPS="$REPO/docs/module-deps.txt"
 
 # Files (relative to src/) that may include the composition root. Everything
 # else must use core/Modules.hpp for the module switches / shutdown flag.
-CORE_HPP_ALLOWED="main.cpp worker_main.cpp api/HealthController.hpp"
+# core/Core.cpp is Core.hpp's own body file (de-inlined into app_core).
+CORE_HPP_ALLOWED="main.cpp worker_main.cpp api/HealthController.hpp core/Core.cpp"
 
 fail=0
 
