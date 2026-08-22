@@ -18,6 +18,9 @@
 #include <thread>
 
 #include <drogon/drogon.h>
+#include <spdlog/spdlog.h>
+
+#include <nlohmann/json.hpp>
 
 #include "api/Api.hpp"
 #include "core/Core.hpp"

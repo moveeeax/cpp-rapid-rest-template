@@ -11,7 +11,8 @@
 # adds the edge below — the gate hard-codes them):
 #   * utils/ is the bottom: it may include nothing outside utils/.
 #   * core/Core.hpp is the composition root: only the binary entry points
-#     (root) and api/HealthController.hpp may include it. Everything else
+#     (root), api/HealthController.hpp and its own body file core/Core.cpp
+#     may include it. Everything else
 #     that needs a module switch or the shutdown flag includes the tiny
 #     core/Modules.hpp instead.
 #   * webhooks must not include email (that edge closed the
