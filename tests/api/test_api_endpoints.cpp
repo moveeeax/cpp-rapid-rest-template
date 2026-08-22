@@ -4,7 +4,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include "api/Api.hpp"
+#include "api/Endpoints.hpp"
+#include "api/HealthController.hpp"
 #include "test_helpers.hpp"
 
 using json = nlohmann::json;

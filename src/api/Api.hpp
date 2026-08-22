@@ -8,6 +8,12 @@
  *            - Middleware.hpp   — advice chain + OTel glue (the heavy include)
  *          Controllers include the first three directly and must NOT include
  *          this header (that used to form an include cycle).
+ *
+ *          ONLY binary entry points include this header: src/main.cpp and
+ *          tests/e2e (which boots the full server). Everything else —
+ *          controllers, tests/api, tests/unit — includes the specific
+ *          header it needs, so no controller is a transitive dependency of
+ *          another and touching one controller recompiles one TU, not all.
  */
 
 #pragma once

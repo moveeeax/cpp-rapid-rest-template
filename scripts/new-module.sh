@@ -4,7 +4,7 @@
 # module's on/off pattern (Core::content_enabled() + CONTENT_ENABLED):
 #
 #   config/config.json + config.sample.json  {"<name>": {"enabled": "${<NAME>_ENABLED:-false}"}}
-#   src/core/Core.hpp                        Core::<name>_enabled() beside content_enabled()
+#   src/core/Modules.hpp                     Core::<name>_enabled() beside content_enabled()
 #   docker/docker-compose.yml                <NAME>_ENABLED on the app service
 #   helm/cpp-api                             values key + configmap fragment + deployment env
 #   helm/cpp-worker                          values key + configmap fragment + deployment env
@@ -85,7 +85,10 @@ patch_config "$ROOT/config/config.sample.json"
 # gated off in prod until you opt in there explicitly (make prod-check).
 
 # ── 2. Core::<name>_enabled() ────────────────────────────────────────────
-CORE="$ROOT/src/core/Core.hpp"
+# The switch lives in core/Modules.hpp (NOT Core.hpp): controllers include
+# only that tiny header, so a new module switch doesn't drag the whole
+# composition root into every controller TU.
+CORE="$ROOT/src/core/Modules.hpp"
 if grep -qF "inline bool ${NAME}_enabled()" "$CORE"; then
     echo "==> Core::${NAME}_enabled() already exists — skipped"
 else

@@ -35,7 +35,7 @@
 #include "api/Guards.hpp"
 #include "api/HandlerSupport.hpp"
 #include "api/RequestUtils.hpp"
-#include "core/Core.hpp"
+#include "core/Modules.hpp"
 #include "storage/Storage.hpp"
 #include "utils/Config.hpp"
 #include "utils/Crypto.hpp"

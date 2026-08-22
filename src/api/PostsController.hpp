@@ -19,7 +19,6 @@
 #include "api/HandlerSupport.hpp"
 #include "api/RequestUtils.hpp"
 #include "api/Validation.hpp"
-#include "core/Core.hpp"
 #include "domain/Post.hpp"
 #include "repositories/PostRepository.hpp"
 #include "security/Auth.hpp"
