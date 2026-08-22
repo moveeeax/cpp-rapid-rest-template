@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787371819254,
+  "lastUpdate": 1787371822082,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -1546,6 +1546,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "idle RSS",
             "value": 6.2,
+            "unit": "MB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c0145ae560df381b53ff7262ba04ee67ed174b0e",
+          "message": "feat(orgs): add-orgs.sh multi-tenancy starter + org-scoped scaffolding (#25) (#40)\n\nMulti-tenancy as a generator option, not a runtime flag: add-orgs.sh\ninstalls src/tenancy/ (OrgCrudBase with no unscoped reads, fail-closed\nOrgContext, deny-by-default role matrix), the organizations API, org\nguards, the org claim mint, migration and four test suites — one-shot,\nanchor-checked patches, refuses a second run. new-resource.sh gains\n--org-scoped (repo on OrgCrudBase, handlers open with the org guard\npair, org_id FK in the migration) and fails clearly when the kit is\nabsent. Template itself only grows the passive half: AuthPrincipal::org\nplus optional \"org\" claim parsing in verify_jwt. docs/ORGS.md covers\nthe two role layers, claim/switch semantics and instant revocation.",
+          "timestamp": "2026-08-21T21:34:53Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/c0145ae560df381b53ff7262ba04ee67ed174b0e"
+        },
+        "date": 1787371821292,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "healthz p50",
+            "value": 4.6,
+            "unit": "ms"
+          },
+          {
+            "name": "healthz p99",
+            "value": 17.71,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p50",
+            "value": 23.09,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p99",
+            "value": 48.35,
+            "unit": "ms"
+          },
+          {
+            "name": "runtime image size",
+            "value": 108,
+            "unit": "MB"
+          },
+          {
+            "name": "cold start to /ready",
+            "value": 901,
+            "unit": "ms"
+          },
+          {
+            "name": "idle RSS",
+            "value": 4.2,
             "unit": "MB"
           }
         ]
