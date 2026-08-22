@@ -6,10 +6,10 @@
 # `exit 0`, and this template's own history has both failure modes on record:
 # check-test-buckets.sh read only its first directory argument (tests/api was
 # never scanned), and a downstream fork shipped a gitleaks config that scanned
-# with zero rules — green for months, checking nothing. So: for each of the six
+# with zero rules — green for months, checking nothing. So: for each of the seven
 # check scripts, copy the subtree it reads into a scratch dir, plant a known
 # breakage, and require the gate to FAIL and to NAME what it found. Two planted
-# breakages per gate, twelve in all.
+# breakages per gate, fourteen in all.
 #
 # Every case follows the same discipline (borrowed from the cyber-accountant
 # fork's check-render-selftest.sh, which learned it the expensive way):
@@ -175,7 +175,7 @@ run_case() {
     echo "SELFTEST OK   [$label]: $gate exit $status, named the planted breakage"
 }
 
-# --- the twelve breakages ----------------------------------------------------
+# --- the fourteen breakages --------------------------------------------------
 # Each mutator takes the copy root as $1, edits in place, and COUNTS. An
 # anchor that stops matching must fail the mutator loudly (see run_case), not
 # no-op — every anchor below is a real line in this repo today.
@@ -392,6 +392,42 @@ with open(path, "w", encoding="utf-8") as fh:
 PY
 }
 
+# 13. The webhooks -> email include edge resurrected — the exact edge whose
+#     removal broke the email/jobs/webhooks cycle in the phase-1 hub split.
+break_module_dep_cycle_edge() {
+    python3 - "$1/src/webhooks/Webhooks.hpp" <<'PY'
+import sys
+path = sys.argv[1]
+planted = '#include "email/Mailer.hpp"'
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+if planted in text:
+    sys.exit("break_module_dep_cycle_edge: %s already includes email/Mailer.hpp — "
+             "the healthy tree is not healthy" % path)
+# Appended at EOF — never compiled, only grepped by the gate.
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write("\n// planted by scripts/check-selftest.sh\n" + planted + "\n")
+PY
+}
+
+# 14. A guard header quietly re-including the composition root — the include
+#     that used to make every controller TU transitively pull Kafka/PayPal/
+#     OTel through Guards.hpp -> Core.hpp.
+break_module_dep_core_hub() {
+    python3 - "$1/src/api/Guards.hpp" <<'PY'
+import sys
+path = sys.argv[1]
+planted = '#include "core/Core.hpp"'
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+if planted in text:
+    sys.exit("break_module_dep_core_hub: %s already includes core/Core.hpp — "
+             "the healthy tree is not healthy" % path)
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write("\n// planted by scripts/check-selftest.sh\n" + planted + "\n")
+PY
+}
+
 # --- run them ----------------------------------------------------------------
 # Needles are LITERAL substrings of each gate's real diagnostics (grep -F).
 # When a gate's wording changes, the needle changes in the same PR — that is
@@ -458,6 +494,17 @@ run_case helm-fail-open check-helm-render.sh break_helm_fail_open \
 run_case helm-committed-jwt check-helm-render.sh break_helm_committed_jwt \
     "helm" \
     'rendered Secret carries a committed credential (jwt-secret)'
+
+run_case module-dep-cycle-edge check-module-deps.sh break_module_dep_cycle_edge \
+    "src docs/module-deps.txt" \
+    'forbidden edge webhooks -> email' \
+    'src/webhooks/Webhooks.hpp' \
+    'utils/CurlInit.hpp'
+
+run_case module-dep-core-hub check-module-deps.sh break_module_dep_core_hub \
+    "src docs/module-deps.txt" \
+    'forbidden include of the composition root: src/api/Guards.hpp includes "core/Core.hpp"' \
+    'include "core/Modules.hpp"'
 
 # --- verdict -----------------------------------------------------------------
 
