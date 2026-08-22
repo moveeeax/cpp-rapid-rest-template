@@ -33,8 +33,14 @@ gates by construction. Hand-rolled versions usually don't.
 2. **API versioning (ADR 0006):** business routes live under `/api/v1`;
    `new-endpoint.sh` rejects unversioned paths. Probe routes (`/healthz`,
    `/ready`, `/health`, `/metrics`) stay unversioned.
-3. **Header-only src/ (ADR 0003):** implementation lives in `.hpp`; don't
-   add `.cpp` files except the existing binary entry points.
+3. **Source layout (ADR 0003, amended 2026-08-22):** leaf utilities, domain
+   structs and ALL template code stay header-only in `.hpp`; modules past
+   the `scripts/bench-incremental.sh` threshold get their non-template
+   bodies de-inlined into a paired `.cpp` compiled ONCE into the `app_core`
+   STATIC library (CMake picks up any `src/**/*.cpp` via GLOB — no CMake
+   edit needed; billing is de-inlined, more modules follow by measured
+   weight). Drogon route macros (`ADD_METHOD_TO`) always stay in the
+   controller `.hpp` — the route gates grep only headers.
 4. **One error shape:** `{error, status, message, ...}` everywhere — use
    `ErrorResponse::*` / `Api::Validation::*`, never hand-rolled error JSON.
 5. **Test buckets by directory** (`scripts/check-test-buckets.sh`):
