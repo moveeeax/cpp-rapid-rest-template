@@ -53,6 +53,36 @@ struct AutoSpan {
 };
 
 /**
+ * @brief Non-template statement primitives — the crossing point of the
+ *        Database test seam (mirrors Cache::install_for_testing).
+ *
+ * execute_read/execute_write/execute_transaction are templates over the
+ * repository callback, so they cannot be virtual themselves. What CAN be
+ * type-erased is the statement layer underneath: TracingTxn already funnels
+ * every repository call into "exec(query)" or "exec(query, pqxx::params)" —
+ * both non-template. A DatabaseManager subclass (tests only) returns an
+ * ErasedTxn from test_transaction_() and the whole execute_* pipeline runs
+ * against it with no pool, no connection, no live Postgres.
+ *
+ * Production never touches this: the real path keeps its direct pqxx calls
+ * (one nullptr check per execute_* call at the connection-acquisition point,
+ * zero virtual dispatch per statement/row).
+ *
+ * Limits (honest): a fake can only return pqxx::result objects it can
+ * construct — i.e. the EMPTY result. Enough to prove substitution, count
+ * calls and inspect query templates; not enough to fake row data. Faking
+ * populated results requires de-inlining the row/result layer (Phase 2).
+ */
+class ErasedTxn {
+public:
+    virtual ~ErasedTxn() = default;
+    /// exec_params path: @p params carries the already-type-erased arguments.
+    virtual pqxx::result exec_params_erased(const std::string& query, const pqxx::params& params) = 0;
+    /// plain exec path.
+    virtual pqxx::result exec_erased(const std::string& query) = 0;
+};
+
+/**
  * @brief Transparent transaction proxy that records every executed
  *        statement onto the surrounding db.* span as `db.statement`.
  *
@@ -69,7 +99,11 @@ template <typename TxnT>
 class TracingTxn {
 public:
     TracingTxn(TxnT& txn, opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span> span)
-        : txn_(txn), span_(std::move(span)) {}
+        : txn_(&txn), span_(std::move(span)) {}
+
+    /// Test-seam constructor: back the proxy with a fake statement executor
+    /// instead of a live pqxx transaction (see ErasedTxn above).
+    explicit TracingTxn(ErasedTxn& fake) : fake_(&fake) {}
 
     ~TracingTxn() {
         if (span_ && count_ > 0) {
@@ -84,19 +118,28 @@ public:
     template <typename... Args>
     auto exec_params(const std::string& query, Args&&... args) {
         record_(query);
+        if (fake_)
+            return fake_->exec_params_erased(query, pqxx::params{std::forward<Args>(args)...});
         // pqxx::exec_params is deprecated since libpqxx 7.10 in favour of
         // exec(query, params). Keep the exec_params name on the proxy — every
         // repository calls it — and translate here in one place.
-        return txn_.exec(std::string_view{query}, pqxx::params{std::forward<Args>(args)...});
+        return txn_->exec(std::string_view{query}, pqxx::params{std::forward<Args>(args)...});
     }
 
     auto exec(const std::string& query) {
         record_(query);
-        return txn_.exec(query);
+        if (fake_)
+            return fake_->exec_erased(query);
+        return txn_->exec(query);
     }
 
-    /// Escape hatch to the real pqxx transaction.
-    TxnT& raw() { return txn_; }
+    /// Escape hatch to the real pqxx transaction. Unavailable (throws) when
+    /// the proxy is backed by a test fake — there is no pqxx transaction.
+    TxnT& raw() {
+        if (!txn_)
+            throw std::logic_error("TracingTxn::raw(): no live pqxx transaction behind a test fake");
+        return *txn_;
+    }
 
 private:
     static constexpr size_t kMaxAttrLen = 2048;
@@ -119,7 +162,8 @@ private:
         return statements_.substr(0, kMaxAttrLen) + "…";
     }
 
-    TxnT& txn_;
+    TxnT* txn_ = nullptr;
+    ErasedTxn* fake_ = nullptr;
     opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span> span_;
     std::string statements_;
     size_t count_ = 0;
@@ -386,6 +430,13 @@ private:
     Retry::Policy retry_policy_;
 
 public:
+    // Polymorphic so tests can substitute a fake for the singleton via
+    // Database::install_for_testing (mirrors Cache::CacheManager). The
+    // execute_* entry points are templates and stay non-virtual; the seam
+    // is the test_transaction_() hook below plus the few non-template
+    // operations (is_initialized/health_check) application code calls.
+    virtual ~DatabaseManager() = default;
+
     void set_retry_policy(const Retry::Policy& p) { retry_policy_ = p; }
     const Retry::Policy& retry_policy() const { return retry_policy_; }
 
@@ -488,6 +539,8 @@ public:
      */
     template <typename Func>
     auto execute_write(Func&& func) -> decltype(func(std::declval<detail::TracingTxn<pqxx::work>&>())) {
+        if (auto* fake = test_transaction_("db.write", "primary"))
+            return run_faked_<pqxx::work>(*fake, std::forward<Func>(func));
         return execute_with_<pqxx::work>(*primary_pool_or_throw_(),
                                          &Retry::is_transient_pqxx_write,
                                          "db.write",
@@ -501,6 +554,8 @@ public:
      */
     template <typename Func>
     auto execute_write_idempotent(Func&& func) -> decltype(func(std::declval<detail::TracingTxn<pqxx::work>&>())) {
+        if (auto* fake = test_transaction_("db.write.idempotent", "primary"))
+            return run_faked_<pqxx::work>(*fake, std::forward<Func>(func));
         return execute_with_<pqxx::work>(*primary_pool_or_throw_(),
                                          &Retry::is_transient_pqxx_read,
                                          "db.write.idempotent",
@@ -514,6 +569,8 @@ public:
     template <typename Func>
     auto execute_transaction(IsolationLevel level, Func&& func)
         -> decltype(func(std::declval<detail::TracingTxn<pqxx::work>&>())) {
+        if (auto* fake = test_transaction_("db.transaction", "primary"))
+            return run_faked_<pqxx::work>(*fake, std::forward<Func>(func));
         return execute_with_<pqxx::work>(*primary_pool_or_throw_(),
                                          &Retry::is_transient_pqxx_write,
                                          "db.transaction",
@@ -561,12 +618,19 @@ public:
     template <typename Func>
     auto execute_read_primary(Func&& func)
         -> decltype(func(std::declval<detail::TracingTxn<pqxx::read_transaction>&>())) {
+        if (auto* fake = test_transaction_("db.read", "primary"))
+            return run_faked_<pqxx::read_transaction>(*fake, std::forward<Func>(func));
         return execute_with_<pqxx::read_transaction>(
             *primary_pool_or_throw_(), &Retry::is_transient_pqxx_read, "db.read", "primary", std::forward<Func>(func));
     }
 
     template <typename Func>
     auto execute_read(Func&& func) -> decltype(func(std::declval<detail::TracingTxn<pqxx::read_transaction>&>())) {
+        // Pool label "replica": the routing INTENT of this entry point, which
+        // is what a fake wants to observe (vs execute_read_primary's
+        // "primary") — production may still fall back below.
+        if (auto* fake = test_transaction_("db.read", "replica"))
+            return run_faked_<pqxx::read_transaction>(*fake, std::forward<Func>(func));
         if (replica_pools_.empty()) {
             return execute_read_primary(std::forward<Func>(func));
         }
@@ -584,7 +648,34 @@ public:
         }
     }
 
+protected:
+    /**
+     * @brief Test seam hook, consulted ONCE per execute_* call — at the
+     *        connection-acquisition point, never per statement or per row.
+     *        The base implementation returns nullptr (a single predicted
+     *        virtual call, then the untouched production path). A test fake
+     *        (DatabaseManager subclass installed via install_for_testing)
+     *        returns an ErasedTxn to run the transaction body against —
+     *        no pool, no pqxx::connection, no retry, no tracing.
+     * @param op   span-style operation label ("db.write", "db.read", ...)
+     * @param pool routing intent ("primary" / "replica") — lets a fake
+     *             assert read-routing without live replicas.
+     */
+    virtual detail::ErasedTxn* test_transaction_(const char* op, const char* pool) {
+        (void)op;
+        (void)pool;
+        return nullptr;
+    }
+
 private:
+    /// Fake path of the execute_* family (tests only): hand @p func a
+    /// TracingTxn backed by @p fake instead of a live transaction.
+    template <typename TxnT, typename Func>
+    auto run_faked_(detail::ErasedTxn& fake, Func&& func) -> decltype(func(std::declval<detail::TracingTxn<TxnT>&>())) {
+        detail::TracingTxn<TxnT> traced(fake);
+        return func(traced);
+    }
+
     /// Shared body of with_primary_connection / with_replica_connection:
     /// borrow a raw connection from @p pool, re-applying the pool's session
     /// guards (statement_timeout) when @p func returns — even on throw.
@@ -625,7 +716,7 @@ private:
     }
 
 public:
-    bool health_check() {
+    virtual bool health_check() {
         try {
             auto conn = get_primary();
             pqxx::nontransaction ntxn(*conn);
@@ -655,7 +746,7 @@ public:
         }
     }
 
-    bool is_initialized() const { return initialized_; }
+    virtual bool is_initialized() const { return initialized_; }
 
     // ── Pool saturation introspection ─────────────────────────────────────
     // The connection pool already tracks active_count()/size(); these surface
@@ -712,6 +803,24 @@ inline void shutdown() {
         global_db->shutdown();
         global_db.reset();
     }
+}
+
+// ── Test seam ────────────────────────────────────────────────────────────────
+// Swap the global database for a fake (DatabaseManager subclass overriding
+// is_initialized/health_check/test_transaction_) so DB-touching logic is
+// unit-testable without a live Postgres. Mirrors Cache::install_for_testing;
+// call reset_for_testing() in TearDown. See tests/unit/test_database_seam.cpp.
+//
+// Scope (honest): the seam covers the execute_* family (statement templates +
+// call counts against empty pqxx::results) and the non-template ops. It does
+// NOT cover with_primary_connection / with_replica_connection (raw
+// pqxx::connection — unfakeable without a server) or row data in results;
+// both need the Phase 2 de-inline of the row/result layer.
+inline void install_for_testing(std::unique_ptr<DatabaseManager> fake) {
+    global_db = std::move(fake);
+}
+inline void reset_for_testing() {
+    global_db.reset();
 }
 
 }  // namespace Database

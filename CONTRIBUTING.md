@@ -34,8 +34,9 @@ pre-commit run --all-files
 
 1. Branch from `master`.
 2. Make focused, reviewable commits — ideally one per logical change.
-3. Run `make test` locally before pushing (or `make test-quick` for the
-   fast TDD loop against an already-built image).
+3. Run `make test` locally before pushing (`make test-local NAME='Foo*'`
+   is the fast native TDD loop; `make test-rerun` only re-runs the
+   already-built image — flake triage, not verification).
 4. Open a PR; CI will run build, tests, sanitizers, and linters.
 5. Wait for required reviewers (see `CODEOWNERS`).
 

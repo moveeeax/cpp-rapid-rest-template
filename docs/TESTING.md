@@ -18,6 +18,26 @@ Total: **451** test cases. `make test-unit` is the fast, dependency-free loop;
 binary; `make test-e2e` runs just the wire-level suite. `make ci-local` runs
 the lot the way CI does.
 
+## Day-to-day loops — which target when
+
+- **Recommended inner loop: `make test-local NAME='Foo*'`** — native
+  incremental build (CMake `dev` preset, no Docker) + both gtest binaries with
+  a `--gtest_filter`. Seconds per iteration once configured. One-time setup:
+  set `VCPKG_ROOT` and run `make configure-local`. The integration binary
+  needs a running stack (`make up`); without it those suites skip locally.
+  Variants: `make test-unit-local` (sidecar-free subset), `make test-watch`
+  (re-run on save via watchexec/entr).
+- **`make test`** (alias: `make test-quick`) — rebuild the Docker test image
+  with the layer cache, then the full suite. Warm builder layers: ~2 min,
+  dominated by actual compilation of your change — that time is the price of
+  the run testing the code you wrote. Cold (no `make warm-cache`): ~30 min.
+  This is what CI runs.
+- **`make test-rerun`** — re-run the LAST-BUILT test image without
+  rebuilding. Source edits do **not** land in it, so it can never verify a
+  change; its only honest use is re-checking a flaky test. (This was the old
+  `test-quick` behavior — renamed because "~5 s green" after an edit proved
+  nothing.)
+
 ## Coverage
 
 `make coverage` builds with instrumentation and runs **all** buckets, so the
