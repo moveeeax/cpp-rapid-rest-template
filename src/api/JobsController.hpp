@@ -10,6 +10,8 @@
 #include <drogon/drogon.h>
 #include <spdlog/spdlog.h>
 
+#include <nlohmann/json.hpp>
+
 #include "api/Guards.hpp"
 #include "api/RequestUtils.hpp"
 #include "api/Validation.hpp"
@@ -19,6 +21,7 @@
 namespace Api {
 
 using namespace drogon;
+using json = nlohmann::json;
 
 // The jobs API is an ops surface (queue state, payloads, requeue/cancel) —
 // admin-only when auth is on (API_REQUIRE_ADMIN no-ops under AUTH_MODE=none).
