@@ -1,12 +1,15 @@
 /**
  * @file Strings.hpp
  * @brief Small string helpers used in multiple modules.
+ *
+ * Declarations only — the bodies live in Strings.cpp (compiled once into
+ * app_core; ADR 0003 as amended 2026-08-22). The kDefault*Csv path constants
+ * stay inline constexpr here: they are read directly by Auth / RateLimit /
+ * BillingController and the tests, not just by the bodies below.
  */
 
 #pragma once
 
-#include <cstdlib>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -100,80 +103,33 @@ inline constexpr const char* kDefaultProtectedPathsCsv =
  *        prefix match for an entry ending in `*`. Shared by Auth / RateLimit /
  *        Idempotency so they can't disagree about what's public.
  */
-inline bool path_is_public(const std::unordered_set<std::string>& public_paths, const std::string& path) {
-    if (public_paths.count(path) > 0)
-        return true;
-    for (const auto& p : public_paths) {
-        if (!p.empty() && p.back() == '*') {
-            const std::string_view prefix(p.data(), p.size() - 1);
-            if (path.size() >= prefix.size() && path.compare(0, prefix.size(), prefix) == 0)
-                return true;
-        }
-    }
-    return false;
-}
+bool path_is_public(const std::unordered_set<std::string>& public_paths, const std::string& path);
 
 /// Canonical truthy set for boolean flags: "true" / "1" / "yes". Shared by
 /// Config's env/bool parsing and the direct getenv checks so the two paths
 /// can't drift on what counts as "on".
-inline bool flag_true(std::string_view value) {
-    return value == "true" || value == "1" || value == "yes";
-}
+bool flag_true(std::string_view value);
 
 /// True iff env var @p name is set to a truthy value (see flag_true).
-inline bool env_flag_true(const char* name) {
-    const char* value = std::getenv(name);
-    return value != nullptr && flag_true(value);
-}
+bool env_flag_true(const char* name);
 
 /// Join @p v with @p sep between elements ("a,b,c" for sep ",").
-inline std::string join(const std::vector<std::string>& v, const char* sep) {
-    std::string out;
-    for (size_t i = 0; i < v.size(); ++i) {
-        if (i > 0)
-            out += sep;
-        out += v[i];
-    }
-    return out;
-}
+std::string join(const std::vector<std::string>& v, const char* sep);
 
 /**
  * @brief Split @p csv on commas, dropping empty components.
  */
-inline std::vector<std::string> split_csv_vec(const std::string& csv) {
-    std::vector<std::string> out;
-    std::stringstream ss(csv);
-    std::string piece;
-    while (std::getline(ss, piece, ',')) {
-        // Trim surrounding whitespace so "a, b" yields {"a","b"} not {"a"," b"}
-        // — public-path / whitelist / CORS configs are routinely written with
-        // spaces after commas.
-        const size_t a = piece.find_first_not_of(" \t\r\n");
-        if (a == std::string::npos)
-            continue;  // all-whitespace / empty
-        const size_t b = piece.find_last_not_of(" \t\r\n");
-        out.push_back(piece.substr(a, b - a + 1));
-    }
-    return out;
-}
+std::vector<std::string> split_csv_vec(const std::string& csv);
 
 /// CSV → unordered_set wrapper for callers that need set semantics (auth /
 /// rate-limit public paths). Built on top of split_csv_vec — single source.
-inline std::unordered_set<std::string> split_csv_set(const std::string& csv) {
-    auto v = split_csv_vec(csv);
-    return {v.begin(), v.end()};
-}
+std::unordered_set<std::string> split_csv_set(const std::string& csv);
 
 /// Base CSV (full-override semantics) + extra CSV (additive semantics) → one
 /// set. This is THE way `api.public_paths` and `api.public_paths_extra` are
 /// combined — Auth and RateLimit both call it so the two middlewares can't
 /// disagree about what the extra key means. Empty extra is a no-op.
-inline std::unordered_set<std::string> merge_csv_sets(const std::string& base_csv, const std::string& extra_csv) {
-    auto out = split_csv_set(base_csv);
-    for (auto& p : split_csv_vec(extra_csv))
-        out.insert(std::move(p));
-    return out;
-}
+std::unordered_set<std::string> merge_csv_sets(const std::string& base_csv, const std::string& extra_csv);
 
 /// Partially redact an email for logs: keep the first local char and the full
 /// domain, mask the rest ("john.doe@example.com" -> "j***@example.com"). A
@@ -181,14 +137,6 @@ inline std::unordered_set<std::string> merge_csv_sets(const std::string& base_cs
 /// Inputs without '@' are treated as the local part (defensive — not a real
 /// address). Use everywhere an address would otherwise land in a log line; raw
 /// PII in logs is inherited by every fork by default.
-inline std::string mask_email(const std::string& email) {
-    if (email.empty())
-        return email;
-    const auto at = email.find('@');
-    const std::string local = (at == std::string::npos) ? email : email.substr(0, at);
-    const std::string domain = (at == std::string::npos) ? std::string() : email.substr(at);  // includes '@'
-    const std::string masked = (local.size() > 1) ? (std::string(1, local[0]) + "***") : "***";
-    return masked + domain;
-}
+std::string mask_email(const std::string& email);
 
 }  // namespace Utils::Strings
