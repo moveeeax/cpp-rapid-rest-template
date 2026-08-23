@@ -48,7 +48,11 @@ if(ENABLE_WERROR)
     # PCH, std::variant inside pqxx::params) and escape -isystem suppression
     # because the optimizer attributes them to the system-header location —
     # a known false-positive class we can't fix in third-party code.
-    add_compile_options(-Werror -Wno-error=null-dereference -Wno-error=maybe-uninitialized)
+    # -Warray-bounds joins the list for the same reason: GCC 13 at -O3 emits a
+    # bogus std::string-SSO bounds error (libstdc++ operator+ inlining, cf. GCC
+    # PR105651) that comes and goes with unrelated inlining-context changes.
+    add_compile_options(-Werror -Wno-error=null-dereference -Wno-error=maybe-uninitialized
+                        -Wno-error=array-bounds)
 endif()
 
 # Sanitizer support — when ENABLE_SANITIZERS=ON, build with ASan+UBSan
