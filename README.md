@@ -218,6 +218,10 @@ cd my-service
 make doctor        # verify Docker + VM memory before the first (cold) build
 make warm-cache    # optional: prime the vcpkg dependency layer (~30 min -> ~3)
 
+# Or skip local toolchain setup entirely: "Reopen in Container" (VS Code) boots
+# .devcontainer/ from the CI-published builder image — prebuilt vcpkg world
+# included, `make test-local NAME='Foo*'` works out of the box (docs/TESTING.md)
+
 # Rename template identity (project name, image registry, helm charts, etc.)
 ./scripts/init-project.sh my-service docker.io/myorg
 
@@ -596,8 +600,12 @@ make build-local        # first run populates the cache
 make dist-clean && make build-local   # second run is near-instant
 ```
 
-Persist this in your `~/.zshrc` / `~/.bashrc`. The dev container already
-mounts a vcpkg buildtrees + downloads volume, so no extra setup there.
+Persist this in your `~/.zshrc` / `~/.bashrc`.
+
+**Dev container path — zero setup:** `.devcontainer/` boots straight from the
+CI-published builder image (`ghcr.io/…/builder:cache`) with the vcpkg world
+prebuilt inside — no `VCPKG_ROOT`, no cold compile; `make test-local
+NAME='Foo*'` works from the first minute (see `docs/TESTING.md`).
 
 ## Contributing
 

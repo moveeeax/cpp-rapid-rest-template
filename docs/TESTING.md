@@ -23,7 +23,8 @@ the lot the way CI does.
 - **Recommended inner loop: `make test-local NAME='Foo*'`** — native
   incremental build (CMake `dev` preset, no Docker) + both gtest binaries with
   a `--gtest_filter`. Seconds per iteration once configured. One-time setup:
-  set `VCPKG_ROOT` and run `make configure-local`. The integration binary
+  set `VCPKG_ROOT` and run `make configure-local` — or skip setup entirely and
+  open the dev container (next section). The integration binary
   needs a running stack (`make up`); without it those suites skip locally.
   Variants: `make test-unit-local` (sidecar-free subset), `make test-watch`
   (re-run on save via watchexec/entr).
@@ -37,6 +38,23 @@ the lot the way CI does.
   change; its only honest use is re-checking a flaky test. (This was the old
   `test-quick` behavior — renamed because "~5 s green" after an edit proved
   nothing.)
+
+## Dev container — the inner loop with zero setup
+
+`.devcontainer/` opens the repo inside the CI-published builder image
+(`ghcr.io/moveeeax/cpp-rapid-rest-template/builder:cache`): compiler, cmake,
+ninja and the entire prebuilt vcpkg world are already in it, so the first
+configure is ~15 s and `make test-local NAME='Foo*'` works immediately — no
+`VCPKG_ROOT`, no ~30-minute cold dependency build (the container preselects
+`PRESET=devcontainer`, whose preset points the toolchain at the image's
+`/app/build/vcpkg_installed`). The upstream package is public; if your fork's
+GHCR package is private, `docker login ghcr.io` before opening. Docker-in-docker
+is included, so `make up` and the full `make test` also run inside — but the
+recommended inner loop stays `test-local`. The image is linux/amd64 only: on
+Apple Silicon it runs under emulation (works, but compiles are several times
+slower — prefer an x86_64 host or a codespace). Build parallelism is bounded by
+RAM (`JOBS` in the Makefile): heavy test TUs peak ~1.5-2 GiB each, and an
+unbounded `-j` OOM-kills cc1plus on an 8 GiB VM.
 
 ## Coverage
 
