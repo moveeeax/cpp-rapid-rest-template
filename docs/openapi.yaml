@@ -52,21 +52,27 @@ components:
         pattern: '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'
 
   schemas:
+    # Mirrors ErrorResponse::make in src/utils/ErrorResponse.cpp — every
+    # error body carries `error` AND the numeric `status` (message/extras
+    # optional). The schema used to omit `status`; the e2e schema validation
+    # surfaced the drift.
     Error:
       type: object
-      required: [error]
+      required: [error, status]
       properties:
         error: { type: string }
+        status: { type: integer, description: "HTTP status code, duplicated into the body" }
         message: { type: string }
         code: { type: string }
 
     ValidationError:
       type: object
-      required: [error, errors]
+      required: [error, status, errors]
       properties:
         error:
           type: string
           enum: [validation_failed]
+        status: { type: integer }
         errors:
           type: array
           items:
@@ -236,6 +242,42 @@ components:
       type: object
       properties:
         message: { type: string }
+
+    # POST /api/v1/auth/register. Mirrors AuthController::registerUser —
+    # Response::created({{"user", user}, {"message", ...}}).
+    RegisterResponse:
+      type: object
+      required: [user, message]
+      properties:
+        user:    { $ref: '#/components/schemas/User' }
+        message: { type: string }
+
+    # Mirrors Domain::to_json(Post) in src/domain/Post.hpp — the full admin
+    # shape (includes the raw Markdown body). The public index serves the
+    # lighter PostCard projection documented inline on /api/v1/public/posts.
+    Post:
+      type: object
+      required: [id, slug, title, summary, body, status, topic, tags, published_at, created_at, updated_at]
+      properties:
+        id:           { type: string, format: uuid }
+        slug:         { type: string }
+        title:        { type: string }
+        summary:      { type: string }
+        body:         { type: string }
+        status:       { type: string, enum: [draft, published] }
+        topic:        { type: string }
+        tags:         { type: array, items: { type: string } }
+        published_at: { type: ['string', 'null'], format: date-time }
+        created_at:   { type: string }
+        updated_at:   { type: string }
+
+    # GET/POST/PATCH /api/v1/posts[/{id}]. Mirrors PostsController —
+    # Response::ok/created({{"data", post}}).
+    PostDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/Post' }
 
     # Mirrors Domain::to_json(Package) in src/domain/Billing.hpp.
     BillingPackage:
@@ -560,6 +602,14 @@ paths:
       responses:
         '200':
           description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, timestamp]
+                properties:
+                  status:    { type: string, enum: [alive] }
+                  timestamp: { type: integer, format: int64, description: Epoch seconds }
   /ready:
     get:
       summary: Readiness probe
@@ -595,8 +645,16 @@ paths:
       responses:
         '201':
           description: User created — confirmation email queued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegisterResponse' }
         '400': { description: Validation failed }
         '409': { description: Email already registered }
+        '422':
+          description: Idempotency-Key conflict — same key, different body (idempotency middleware)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /api/v1/auth/login:
     post:
       summary: Log in
@@ -620,7 +678,16 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MeResponse' }
-        '401': { description: Invalid email or password }
+        '401':
+          description: Invalid email or password
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Body content type is not application/json (content-type middleware — applies to every JSON API endpoint)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /api/v1/auth/logout:
     post:
       summary: Log out (clears cookies + revokes refresh token)
@@ -645,7 +712,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MeResponse' }
-        '401': { description: Refresh token missing / expired / revoked }
+        '401':
+          description: Refresh token missing / expired / revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /api/v1/auth/me:
     get:
       summary: Get the authenticated user
@@ -695,7 +766,7 @@ paths:
               properties:
                 email: { type: string, format: email }
       responses:
-        '200': { description: If the email is registered, a reset link is on its way }
+        '200': { description: "If the email is registered, a reset link is on its way" }
   /api/v1/account/reset-password/{token}:
     post:
       summary: Apply a password reset using an email-link token
@@ -716,7 +787,11 @@ paths:
                 new_password: { type: string, minLength: 8, maxLength: 128 }
       responses:
         '200': { description: Password updated }
-        '400': { description: Invalid or expired token }
+        '400':
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /api/v1/account/change-email-request:
     post:
       summary: Start an email-change flow (verifies password, mails a link to new address)
@@ -840,7 +915,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UserListResponse' }
-        '403': { description: Not an admin }
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     post:
       summary: Create a confirmed user (admin)
       tags: [admin]
@@ -1034,9 +1113,9 @@ paths:
       parameters:
         - { name: limit,       in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { name: offset,      in: query, schema: { type: integer, minimum: 0, default: 0 } }
-        - { name: action,      in: query, schema: { type: string }, description: Exact action filter, e.g. user.create }
+        - { name: action,      in: query, schema: { type: string }, description: "Exact action filter, e.g. user.create" }
         - { name: actor_id,    in: query, schema: { type: string }, description: Filter by acting principal subject }
-        - { name: target_type, in: query, schema: { type: string }, description: Filter by target kind, e.g. user / role }
+        - { name: target_type, in: query, schema: { type: string }, description: "Filter by target kind, e.g. user / role" }
         - { name: from,        in: query, schema: { type: string, format: date-time }, description: created_at lower bound }
         - { name: to,          in: query, schema: { type: string, format: date-time }, description: created_at upper bound }
       responses:
@@ -1062,6 +1141,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/JobListResponse' }
+        '401':
+          description: Not authenticated (auth middleware — the route is not in api.public_paths)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '403': { description: Not an admin }
     post:
       summary: Submit a background job
@@ -1166,7 +1250,11 @@ paths:
                   description: "Keyword tags driving the index tag cloud. No commas or line breaks per tag."
                   items: { type: string, maxLength: 40 }
       responses:
-        '201': { description: Created }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostDetailResponse' }
         '400': { description: Validation failed }
         '403': { description: Not an admin }
         '409': { description: Slug already exists }
@@ -1364,6 +1452,11 @@ paths:
       responses:
         '201': { description: "Stored — { data: { key, url } }" }
         '400': { description: "no_file | unsupported_type (raster only — SVG is rejected) | bad_size (1 byte – 5 MB) | bad_content (magic bytes do not match the extension)" }
+        '401':
+          description: Not authenticated (auth middleware — multipart passes the content-type gate but still needs a session)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '403': { description: Not an admin }
         '404': { description: Content module disabled }
         '503': { description: Storage backend not configured }
