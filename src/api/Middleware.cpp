@@ -716,10 +716,10 @@ void register_docs_endpoints() {
             // recompute the hashes — no CI gate checks them either; stale
             // hashes only fail in the BROWSER, which refuses to load the
             // assets. So after any version bump, re-pin both by hand:
-            //   curl -fsSL https://unpkg.com/swagger-ui-dist@x.y.z/swagger-ui.css \
-            //     | openssl dgst -sha384 -binary | openssl base64 -A
-            //   curl -fsSL https://unpkg.com/swagger-ui-dist@x.y.z/swagger-ui-bundle.js \
-            //     | openssl dgst -sha384 -binary | openssl base64 -A
+            //   curl -fsSL https://unpkg.com/swagger-ui-dist@x.y.z/swagger-ui.css |
+            //     openssl dgst -sha384 -binary | openssl base64 -A
+            //   curl -fsSL https://unpkg.com/swagger-ui-dist@x.y.z/swagger-ui-bundle.js |
+            //     openssl dgst -sha384 -binary | openssl base64 -A
             // and paste each output after its "sha384-" prefix below. The
             // nightly swagger-sri-guard job (gates-nightly.yml) re-downloads
             // the pinned files and fails on any pin/hash drift, so a merged
