@@ -81,7 +81,9 @@ gates by construction. Hand-rolled versions usually don't.
    — seconds, no build.
    Touched a `check-*` script? Also run `./scripts/check-selftest.sh` —
    plants 14 breakages and requires every gate to catch and name them
-   (needs helm+yq; CI runs it unconditionally as `gate-selftest`)
+   (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
+   `scripts/`, `helm/` or `.github/workflows/`, with a nightly
+   unconditional backstop in `.github/workflows/gates-nightly.yml`)
 3. `make lint-openapi` — spectral over `docs/openapi.yaml`
 4. `make test` — rebuild (docker layer cache) + full suite, ~2 min warm;
    what CI runs. `make test-quick` is an honest alias for it. `make
@@ -94,7 +96,12 @@ gates by construction. Hand-rolled versions usually don't.
 CI additionally runs clang-tidy, ASan+UBSan (+TSAN), gitleaks, helm-render,
 the OpenAPI-drift gate and the gate selftest; C++ compiles in CI go through sccache backed by
 the Actions cache. Trivy scans images in the release pipeline
-(`.github/workflows/release.yml`), not in per-PR CI.
+(`.github/workflows/release.yml`), not in per-PR CI. The heavy jobs
+(build-and-test, clang-tidy, sanitizers, tsan, runtime-smoke, frontend,
+gate-selftest) SELF-scope: they always start (required-check semantics stay
+honest — never a `paths:` filter), diff the change set themselves, and exit
+green in seconds when their input paths are untouched (docs/CI-PROFILES.md
+explains the mechanism and the path lists).
 
 An opt-in rendered-artifact gate for forks that render documents ships as
 `scripts/check-artifact.py` + `scripts/render-artifacts.sh` + a mandatory

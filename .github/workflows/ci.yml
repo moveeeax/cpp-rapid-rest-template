@@ -10,9 +10,12 @@ concurrency:
   cancel-in-progress: true
 
 # CI only reads the repo; release/builder-cache workflows declare their own
-# write scopes explicitly.
+# write scopes explicitly. pull-requests: read exists solely for the
+# self-scoping steps (`gh api .../pulls/N/files` lists the PR's changed
+# files) — still no write scope anywhere.
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   build-and-test:
@@ -28,8 +31,45 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
 
       - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Expose Actions cache env for sccache
@@ -37,9 +77,11 @@ jobs:
         # docker builds and `docker run` compile steps) can talk to the Actions
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
         uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
 
       - name: Build builder image (cache warm)
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: .
@@ -68,6 +110,7 @@ jobs:
         # while checking nothing (the guard existed in test_helpers.hpp but was
         # exported nowhere — downstream bump: tarassov.me 33e108e).
         # docker-compose.yml forwards it into the test-runner container.
+        if: steps.scope.outputs.relevant == 'true'
         env:
           CI_REQUIRE_INFRA: "1"
         run: |
@@ -75,7 +118,7 @@ jobs:
           make test
 
       - name: Dump logs on failure
-        if: failure()
+        if: failure() && steps.scope.outputs.relevant == 'true'
         run: |
           docker compose -f docker/docker-compose.yml --env-file docker/.env \
             --profile test logs test-runner || true
@@ -165,18 +208,58 @@ jobs:
     # first PASSING the untouched copy as a control. A gate only ever run
     # against healthy trees is indistinguishable from `exit 0` (check-test-
     # buckets.sh once scanned only its first directory argument; a downstream
-    # gitleaks config once scanned with zero rules). Deliberately NOT
-    # path-scoped: a skipped job reports success, which is the disease this
-    # job exists to cure.
+    # gitleaks config once scanned with zero rules). SELF-scoped (never a
+    # workflow-level `paths:` filter — a path-skipped required job reports
+    # success, which is the disease this job exists to cure): the job always
+    # starts, and runs the selftest only when the diff touches where gate
+    # mutations live (scripts/, .github/workflows/, helm/). Rot insurance for
+    # everything else is .github/workflows/gates-nightly.yml — a daily
+    # unconditional run.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch the gates?
+        # Same self-scoping contract as the heavy jobs: always start, exit
+        # green in seconds when untouched, fail open on any diff trouble.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(scripts/|helm/|\.github/workflows/)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
       - name: Install helm + yq
+        if: steps.scope.outputs.relevant == 'true'
         run: |
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
       - name: Gate selftest (14 planted breakages must be caught)
+        if: steps.scope.outputs.relevant == 'true'
         run: ./scripts/check-selftest.sh
 
   runtime-smoke:
@@ -190,8 +273,45 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
 
       - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Expose Actions cache env for sccache
@@ -199,9 +319,11 @@ jobs:
         # docker builds and `docker run` compile steps) can talk to the Actions
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
         uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
 
       - name: Build app runtime image
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: .
@@ -220,6 +342,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build worker runtime image
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: .
@@ -241,6 +364,7 @@ jobs:
         # ldd exits 0 even when a DT_NEEDED entry is missing, so grep the
         # output. Also assert the CA bundle is present: without it every
         # outbound TLS (SMTP STARTTLS, S3) fails at runtime only.
+        if: steps.scope.outputs.relevant == 'true'
         run: |
           check_image() {
             image="$1"; binary="$2"
@@ -262,6 +386,7 @@ jobs:
       - name: API runtime binary starts
         # --print-routes returns before any Core init, so no Postgres/Redis is
         # needed and the check still proves the shipped binary loads and runs.
+        if: steps.scope.outputs.relevant == 'true'
         run: |
           docker run --rm cpp-api-template:runtime-ci --print-routes | tee routes.txt
           grep -q '/healthz' routes.txt
@@ -271,6 +396,7 @@ jobs:
         # so it exits non-zero AFTER the startup banner. The banner is what we
         # assert on — reaching it means the dynamic loader and the static
         # initialisers ran inside the runtime image.
+        if: steps.scope.outputs.relevant == 'true'
         run: |
           out="$(timeout 120 docker run --rm cpp-api-template-worker:runtime-ci config/no-such-config.json 2>&1 || true)"
           printf '%s\n' "$out"
@@ -302,27 +428,73 @@ jobs:
       run: { working-directory: frontend }
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch the frontend?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # docs/openapi.yaml is an input: schema.gen.ts is generated from it.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(frontend/|docs/openapi\.yaml$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.scope.outputs.relevant == 'true'
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
+        if: steps.scope.outputs.relevant == 'true'
         run: npm ci --no-audit --no-fund
       - name: Regenerate OpenAPI types
+        if: steps.scope.outputs.relevant == 'true'
         run: npm run gen:api
       - name: schema.gen.ts up to date with docs/openapi.yaml
         # gen:api just rewrote schema.gen.ts from the spec. If the committed
         # copy differs, someone changed docs/openapi.yaml without running
         # `make frontend-gen-api` — fail so the stale file can't ride green.
+        if: steps.scope.outputs.relevant == 'true'
         run: git diff --exit-code -- src/lib/api/schema.gen.ts
       - name: Typecheck
+        if: steps.scope.outputs.relevant == 'true'
         run: npm run typecheck
       - name: Unit tests
+        if: steps.scope.outputs.relevant == 'true'
         run: npm test
       - name: Lint
+        if: steps.scope.outputs.relevant == 'true'
         run: npm run lint  # flat config, zero-warning baseline
       - name: Production build
+        if: steps.scope.outputs.relevant == 'true'
         run: npm run build
 
   clang-tidy:
@@ -336,8 +508,45 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
 
       - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Expose Actions cache env for sccache
@@ -345,9 +554,11 @@ jobs:
         # docker builds and `docker run` compile steps) can talk to the Actions
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
         uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
 
       - name: Build builder image
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: .
@@ -366,10 +577,14 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Run clang-tidy inside builder
-        # continue-on-error: ratchet — flip to false once baseline is clean.
+        # continue-on-error: ratchet — flip to false once the baseline is
+        # clean. It is NOT clean: baseline 364 unique warnings in src/
+        # (981 raw lines — headers repeat across TUs) as of 2026-08-23,
+        # master run 32594916143; ~70% is readability-identifier-naming.
         # Checks come from .clang-tidy in the repo root (mounted read-only):
         # bugprone-*, performance-*, portability-*, clang-analyzer-*.
-        continue-on-error: true  # TODO: flip to false once baseline is clean
+        if: steps.scope.outputs.relevant == 'true'
+        continue-on-error: true
         run: |
           docker run --rm \
               -v "$PWD":/src \
@@ -382,7 +597,7 @@ jobs:
               "
 
       - name: Upload clang-tidy log
-        if: always()
+        if: always() && steps.scope.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: clang-tidy-log
@@ -400,8 +615,45 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
 
       - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Expose Actions cache env for sccache
@@ -409,9 +661,11 @@ jobs:
         # docker builds and `docker run` compile steps) can talk to the Actions
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
         uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
 
       - name: Build builder image
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: .
@@ -433,6 +687,7 @@ jobs:
         # The -e ACTIONS_* pass-through + sccache launcher lets the sanitizer
         # recompile hit the same Actions-cache-backed sccache as the builder
         # image build (distinct flags → distinct cache entries, no collisions).
+        if: steps.scope.outputs.relevant == 'true'
         run: |
           docker run --rm \
               -e SCCACHE_GHA_ENABLED=on \
@@ -469,8 +724,45 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
 
       - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Expose Actions cache env for sccache
@@ -478,9 +770,11 @@ jobs:
         # docker builds and `docker run` compile steps) can talk to the Actions
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
         uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
 
       - name: Build builder image
+        if: steps.scope.outputs.relevant == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: .
@@ -501,6 +795,7 @@ jobs:
       - name: Build & run unit tests with TSan
         # Same sccache pass-through as the sanitizers job (TSan flags form
         # their own cache entries).
+        if: steps.scope.outputs.relevant == 'true'
         run: |
           docker run --rm \
               -e SCCACHE_GHA_ENABLED=on \

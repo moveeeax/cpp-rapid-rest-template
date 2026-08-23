@@ -1,0 +1,30 @@
+name: Gates nightly
+
+# Rot insurance for the check-* gates. In per-PR CI the gate-selftest job is
+# self-scoped to scripts/**, .github/workflows/**, helm/** — this nightly run
+# is the unconditional backstop that proves the gates still BITE even when
+# nobody has touched them for weeks (a gate only ever run against healthy
+# trees is indistinguishable from `exit 0`).
+on:
+  schedule:
+    - cron: '23 3 * * *'  # daily, off the top of the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate-selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install helm + yq
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Gate selftest (14 planted breakages must be caught)
+        run: ./scripts/check-selftest.sh
+      - name: Module dependency DAG gate
+        run: ./scripts/check-module-deps.sh
