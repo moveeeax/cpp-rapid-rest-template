@@ -710,6 +710,20 @@ void register_docs_endpoints() {
             // hashed with `openssl dgst -sha384 -binary | base64`, and
             // cross-checked byte-identical against the same files on
             // cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.14.
+            //
+            // Renovate bumps every @x.y.z occurrence in this file (regex
+            // customManager in renovate.json, datasource npm) but CANNOT
+            // recompute the hashes — no CI gate checks them either; stale
+            // hashes only fail in the BROWSER, which refuses to load the
+            // assets. So after any version bump, re-pin both by hand:
+            //   curl -fsSL https://unpkg.com/swagger-ui-dist@x.y.z/swagger-ui.css \
+            //     | openssl dgst -sha384 -binary | openssl base64 -A
+            //   curl -fsSL https://unpkg.com/swagger-ui-dist@x.y.z/swagger-ui-bundle.js \
+            //     | openssl dgst -sha384 -binary | openssl base64 -A
+            // and paste each output after its "sha384-" prefix below. The
+            // nightly swagger-sri-guard job (gates-nightly.yml) re-downloads
+            // the pinned files and fails on any pin/hash drift, so a merged
+            // bump with stale hashes is caught within a day.
             static const std::string kSwaggerUiHtml = R"(<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>API docs</title>
 <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.32.14/swagger-ui.css" integrity="sha384-fgyWYkUAamzuI8mJFu/xpRP0JWCJRwkwUwsYDoOYVHUJ8NQE5cENn8ib3ppwFFSX" crossorigin="anonymous">
