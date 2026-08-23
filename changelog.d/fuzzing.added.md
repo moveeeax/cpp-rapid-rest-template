@@ -1,1 +1,0 @@
-Nightly libFuzzer runs over the four byte-facing parsers (traceparent, decimal-cents, config placeholder expansion, path matching) with round-trip oracles and a growing cached corpus; harnesses are std-only by design — no vcpkg needed.

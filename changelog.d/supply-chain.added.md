@@ -1,1 +1,0 @@
-Releases ship SPDX SBOMs and cosign keyless signatures/attestations for all three images; a nightly guard re-hashes the pinned Swagger UI assets against the CDN, and Renovate watches the pin without automerging it.

@@ -6,6 +6,8 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-08-23
+
 ### Changed
 - `app_core` is now a STATIC library (was INTERFACE) and the billing module
   is de-inlined into it — non-template bodies of `billing/Wallet`,
@@ -66,6 +68,9 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
   shared helpers, dead includes dropped, hot-path copies removed (JWT claims
   moved not copied, request bodies handled as views). 49 files, behavior
   bit-for-bit.
+- Dead template surface resolved: undocumented unused Auth/Messaging helpers removed; `CrudBase` owned-templates, `Database::execute_transaction`/`execute_write_idempotent` and friends are now instantiated by tests (which immediately exposed that the owned-templates required the templated `from_row` convention); `Validation::uuid` reuses the single UUID implementation.
+- The app_core de-inline is complete: 22 more header/body pairs (all controllers, email, security, storage, observability, cache, Migrations), headers down 62%; the email↔jobs include cycle is gone from the header plane.
+- CI sanitizers (ASan+UBSan and TSan) now cover the integration+api buckets against real Postgres/Redis, not just unit — the first instrumented run caught and fixed a latent heap-use-after-free (range-for over a temporary json).
 
 ### Added
 - Billing SPA pages — `/billing` (wallet, packages, top-up), `/billing/return`,
@@ -108,6 +113,21 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
   adjustment notice) routed through the generic `email.send` job —
   delivery can never affect the money path. Full OpenAPI coverage and
   api/integration test suites included.
+- `Billing::spend` — idempotent credit spending with a partial unique reference index (migration 009) and typed `InsufficientCredits`; the wallet test suite gains a randomized 300-op invariant check (`SUM(ledger) == cached balance` after every step).
+- Changelog fragments: a PR now records its changelog entry as its own file
+  `changelog.d/<topic>.<type>.md` (type ∈ added|changed|fixed|removed|security,
+  format: `changelog.d/README.md`) instead of competing for the same
+  `[Unreleased]` lines — `scripts/release.sh` folds the fragments in and
+  retitles `[Unreleased]` itself, `./scripts/assemble-changelog.sh --check`
+  gates fragment format in CI (fragments stay optional, direct `[Unreleased]`
+  edits remain legal), and the gate selftest grows to 20 planted breakages.
+- `.devcontainer` runs on the prebuilt `builder:cache` image — the native `make test-local` inner loop works minutes after opening (warm re-run ~7 s). `Makefile` build jobs are now RAM-capped (`JOBS`), fixing OOM kills on 8 GiB Docker VMs.
+- The e2e suite validates every real JSON response against the OpenAPI schemas (dependency-free subset validator + committed spec JSON with a freshness hash); the first pass fixed the spec's missing `status` field, three long-standing YAML flow-map errors, four undocumented statuses and the absent `Post` schema.
+- Nightly libFuzzer runs over the four byte-facing parsers (traceparent, decimal-cents, config placeholder expansion, path matching) with round-trip oracles and a growing cached corpus; harnesses are std-only by design — no vcpkg needed.
+- `init-project.sh --with-orgs` (installs the multi-tenancy kit post-rename) and `--minimal` (strips the content module via `remove-content-module.sh` with the full gate battery green on the cut tree); self-verification fixed on pristine trees (#57).
+- Opt-in transactional outbox (`Outbox::enqueue` in the caller's transaction + `SKIP LOCKED` drain into the jobs queue, migration 010, `outbox.drain_interval_sec` default off) for events whose loss after commit is unacceptable; decision guide in CONVENTIONS gotcha 20.
+- Releases ship SPDX SBOMs and cosign keyless signatures/attestations for all three images; a nightly guard re-hashes the pinned Swagger UI assets against the CDN, and Renovate watches the pin without automerging it.
+- `scripts/sync-upstream.sh` + a `.template-version` stamp: degit forks with no shared git history can pull template releases as three-way patches with honest conflict markers (`.template-sync-ignore` excludes renamed paths).
 
 ## [1.5.5] — 2026-08-21
 

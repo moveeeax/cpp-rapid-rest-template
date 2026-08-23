@@ -1,1 +1,0 @@
-Dead template surface resolved: undocumented unused Auth/Messaging helpers removed; `CrudBase` owned-templates, `Database::execute_transaction`/`execute_write_idempotent` and friends are now instantiated by tests (which immediately exposed that the owned-templates required the templated `from_row` convention); `Validation::uuid` reuses the single UUID implementation.

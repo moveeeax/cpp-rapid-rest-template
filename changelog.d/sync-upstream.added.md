@@ -1,1 +1,0 @@
-`scripts/sync-upstream.sh` + a `.template-version` stamp: degit forks with no shared git history can pull template releases as three-way patches with honest conflict markers (`.template-sync-ignore` excludes renamed paths).

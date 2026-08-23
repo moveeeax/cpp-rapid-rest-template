@@ -1,1 +1,0 @@
-The app_core de-inline is complete: 22 more header/body pairs (all controllers, email, security, storage, observability, cache, Migrations), headers down 62%; the email↔jobs include cycle is gone from the header plane.
