@@ -94,7 +94,7 @@ gates by construction. Hand-rolled versions usually don't.
    && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh
    && ./scripts/check-config-sync.sh` — seconds, no build.
    Touched a `check-*` script? Also run `./scripts/check-selftest.sh` —
-   plants 16 breakages and requires every gate to catch and name them
+   plants 18 breakages and requires every gate to catch and name them
    (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
    `scripts/`, `helm/` or `.github/workflows/`, with a nightly
    unconditional backstop in `.github/workflows/gates-nightly.yml`)
