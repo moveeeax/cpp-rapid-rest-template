@@ -28,7 +28,7 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
-      - name: Gate selftest (18 planted breakages must be caught)
+      - name: Gate selftest (20 planted breakages must be caught)
         run: ./scripts/check-selftest.sh
       - name: Module dependency DAG gate
         run: ./scripts/check-module-deps.sh
