@@ -469,4 +469,114 @@ CreditResult adjust(const std::string& user_id,
         });
 }
 
+CreditResult spend(const std::string& user_id,
+                   std::int64_t credits,
+                   const std::string& reference,
+                   const std::string& note) {
+    if (credits <= 0)
+        throw InvalidSpendAmount{};
+    if (reference.empty())
+        throw MissingSpendReference{};
+
+    switch (detail::check_user_id(user_id)) {
+        case detail::IdCheck::Malformed:
+            throw MalformedUserId{};
+        case detail::IdCheck::Unknown:
+            throw UnknownUser{};
+        case detail::IdCheck::Valid:
+            break;
+    }
+
+    auto attempt = [&](auto& txn) -> CreditResult {
+        // Materialize the row FIRST so the lock below always has something
+        // to hold — see credit_capture's comments for the full lost-update
+        // diagnosis this guards against. `DO NOTHING` is safe: only
+        // existence matters here, not the value.
+        txn.exec_params(
+            "INSERT INTO wallet_balances (user_id, credits) VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING", user_id);
+
+        // Lock the balance row (now guaranteed to exist) BEFORE the
+        // idempotency check: a same-user concurrent duplicate then
+        // serializes here, and the loser's check below reliably sees the
+        // winner's committed spend row instead of racing it (mirrors
+        // refund_capture, where the payments lock plays this role).
+        auto wb = txn.exec_params("SELECT credits FROM wallet_balances WHERE user_id = $1 FOR UPDATE", user_id);
+        const std::int64_t current_balance = wb[0]["credits"].template as<std::int64_t>();
+
+        // Idempotency: the reference IS the marker — unlike a skipped
+        // refund, a refused spend writes nothing at all (see below), so a
+        // ledger-row check is sufficient here where it wasn't for refunds.
+        auto existing =
+            txn.exec_params("SELECT user_id FROM wallet_entries WHERE kind = 'spend' AND reference = $1", reference);
+        if (!existing.empty()) {
+            if (existing[0]["user_id"].template as<std::string>() != user_id)
+                throw DuplicateSpendReference{};
+            return CreditResult{false, current_balance, std::string{}};
+        }
+
+        // Sufficiency in C++, under the lock, BEFORE any write — the
+        // refusal must be a clean 409 with an untouched ledger, never the
+        // wallet_balances CHECK (credits >= 0) firing as a raw 23514. The
+        // whole transaction (including the materialize insert above) rolls
+        // back; deliberately NO durable record of the refusal — no
+        // real-world money moved anywhere, so there is nothing to
+        // reconcile (contrast refund_capture's skipped_* markers).
+        if (current_balance < credits) {
+            spdlog::info("billing: spend '{}' for user {} needs {} credits but only {} are available — refused",
+                         reference,
+                         user_id,
+                         credits,
+                         current_balance);
+            throw InsufficientCredits{};
+        }
+
+        // Compute the new total explicitly from the locked read above and
+        // set it directly — never via a self-referencing SQL expression
+        // (see the header's file-level note).
+        const std::int64_t new_total = current_balance - credits;
+        txn.exec_params(
+            "INSERT INTO wallet_entries (user_id, delta_credits, kind, reference, note) "
+            "VALUES ($1, $2, 'spend', $3, $4)",
+            user_id,
+            -credits,
+            reference,
+            note);
+        // Plain UPDATE, not an upsert: the row is provably present
+        // (materialized above) and locked (SELECT ... FOR UPDATE above).
+        auto br = txn.exec_params(
+            "UPDATE wallet_balances SET credits = $2, updated_at = now() WHERE user_id = $1 RETURNING credits",
+            user_id,
+            new_total);
+        return CreditResult{true, br[0]["credits"].template as<std::int64_t>(), std::string{}};
+    };
+
+    try {
+        return Database::get().execute_write(attempt);
+    } catch (const pqxx::sql_error& e) {
+        const std::string_view ss = e.sqlstate();
+        // Defense in depth — the C++ sufficiency check under the lock makes
+        // the CHECK (credits >= 0) unreachable, and the pre-check makes
+        // 23503 a narrow TOCTOU (user deleted between check and write).
+        if (ss == "23514")
+            throw InsufficientCredits{};
+        if (ss == "23503")
+            throw UnknownUser{};
+        if (ss != "23505")
+            throw;
+        // Lost a race on migration 009's partial UNIQUE index — only
+        // reachable for a cross-user reference collision (same-user
+        // duplicates serialize on the balance lock and resolve at the
+        // idempotency check). Re-read the winner's row from the PRIMARY (it
+        // just committed there; a replica could still be lagging) and report
+        // instead of retrying.
+        auto winner = Database::get().execute_read_primary([&](auto& txn) {
+            return txn.exec_params("SELECT user_id FROM wallet_entries WHERE kind = 'spend' AND reference = $1",
+                                   reference);
+        });
+        if (winner.empty() || winner[0]["user_id"].template as<std::string>() != user_id)
+            throw DuplicateSpendReference{};
+        return CreditResult{false, balance_of(user_id, /*from_primary=*/true), std::string{}};
+    }
+}
+
 }  // namespace Billing

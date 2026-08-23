@@ -1,11 +1,11 @@
 /**
  * @file Wallet.hpp
- * @brief The credit wallet's crediting/refund/adjustment service — the ONLY
- *        code in this codebase allowed to write `wallet_entries` or
+ * @brief The credit wallet's crediting/refund/adjustment/spend service — the
+ *        ONLY code in this codebase allowed to write `wallet_entries` or
  *        `wallet_balances`. Everything else (the top-up endpoint, the
  *        provider webhook, the admin adjust endpoint — the module's HTTP
- *        layer) calls into these four functions instead of touching the
- *        ledger tables directly.
+ *        layer — and a fork's charging flow) calls into these functions
+ *        instead of touching the ledger tables directly.
  *
  * Declarations only — the bodies live in Wallet.cpp (compiled once into
  * app_core; ADR 0003 as amended 2026-08-22).
@@ -20,6 +20,9 @@
  *   - `credit_capture` is idempotent on `provider_capture_id`: the guarded
  *     UPDATE (`... WHERE provider_capture_id IS NULL`) is the structural
  *     race guard, backed by the UNIQUE index in the migration;
+ *   - `spend` is idempotent on its caller-chosen `reference` (partial UNIQUE
+ *     index over kind='spend' rows, migration 009) and refuses — rather than
+ *     records — an overdraw: see its own docs below;
  *   - `refund_capture` is idempotent on the provider refund id, via a durable
  *     `billing_refunds` row written on EVERY call (applied or skipped) — NOT
  *     on payments.status and NOT on a wallet_entries row, since a skipped
@@ -88,6 +91,58 @@ struct InsufficientBalance : Repositories::ConflictError {
     InsufficientBalance()
         : Repositories::ConflictError("insufficient_balance",
                                       "This adjustment would drive the wallet balance negative") {}
+};
+
+/**
+ * @brief → 409. A `spend()` whose amount exceeds the wallet's current
+ *        balance. Refused up front in C++ under the balance-row lock —
+ *        nothing is written to the ledger at all (the wallet_balances
+ *        CHECK (credits >= 0) is the second belt, not the primary check:
+ *        a money refusal must surface as a clear 409, never a raw 23514).
+ *        Distinct from InsufficientBalance (adjust's refusal) so callers
+ *        and clients can tell an admin correction apart from a user-facing
+ *        "not enough credits".
+ */
+struct InsufficientCredits : Repositories::ConflictError {
+    InsufficientCredits()
+        : Repositories::ConflictError("insufficient_credits",
+                                      "The wallet does not hold enough credits for this spend") {}
+};
+
+/**
+ * @brief → 400. `spend()` refuses a non-positive amount outright instead of
+ *        letting delta_credits=0 trip the wallet_entries CHECK
+ *        (delta_credits <> 0), or a negative "spend" silently CREDIT the
+ *        wallet.
+ */
+struct InvalidSpendAmount : Repositories::ValidationError {
+    InvalidSpendAmount() : Repositories::ValidationError("invalid_spend_amount", "credits must be > 0") {}
+};
+
+/**
+ * @brief → 400. `spend()` requires a non-empty @p reference: it is the
+ *        idempotency key (see migration 009's partial unique index), and an
+ *        empty one would make every retried no-reference spend collide with
+ *        every other — refused before anything is written.
+ */
+struct MissingSpendReference : Repositories::ValidationError {
+    MissingSpendReference()
+        : Repositories::ValidationError("missing_spend_reference",
+                                        "reference must be a non-empty idempotency key for this spend") {}
+};
+
+/**
+ * @brief → 409. A spend @p reference that is already recorded against a
+ *        DIFFERENT user's wallet. A same-user retry never reaches this path
+ *        — it lands in the ordinary idempotent no-op branch instead.
+ *        Pathological (references are caller-scoped by construction), but —
+ *        same reasoning as DuplicateCaptureId — money code must not let a
+ *        constraint violation surface as a bare 500.
+ */
+struct DuplicateSpendReference : Repositories::ConflictError {
+    DuplicateSpendReference()
+        : Repositories::ConflictError("spend_reference_conflict",
+                                      "This spend reference is already recorded against a different user") {}
 };
 
 /**
@@ -340,5 +395,76 @@ CreditResult adjust(const std::string& user_id,
                     std::int64_t delta_credits,
                     const std::string& note,
                     const std::string& admin_id);
+
+/**
+ * @brief Idempotent debit — the `kind='spend'` writer that migration 007
+ *        declared but nothing implemented (the documented gap from the
+ *        downstream port, #24/#39). Writes a negative `spend` ledger row and
+ *        the balance-cache update in ONE transaction, or refuses cleanly.
+ *
+ * Deliberately NOT exposed as an HTTP endpoint by this template: WHAT a
+ * credit buys — a render, an API call, a report — is fork domain. A fork's
+ * service layer calls this function at its charge point (with the fork's own
+ * natural idempotency key as @p reference: a job id, an order id, a request
+ * id); the template only guarantees that whatever that charge is, it can
+ * never post twice, never overdraw, and never desync the ledger from the
+ * cache. docs/openapi.yaml and Api::get_endpoints() are intentionally
+ * untouched.
+ *
+ * Same canonical write pattern as every other writer in this file:
+ * materialize the wallet_balances row (`INSERT ... ON CONFLICT DO NOTHING`),
+ * `SELECT ... FOR UPDATE`, compute the new total in C++ from the locked
+ * read, plain `UPDATE` — see the file-level note on why never a
+ * self-referencing SQL expression. Lock order: spend takes ONLY the
+ * wallet_balances lock (there is no payments row in this flow) — that is the
+ * SECOND lock in credit_capture's and refund_capture's order, with no first
+ * lock held before it, so spend can never deadlock against either of them
+ * over the same user.
+ *
+ * Decision sequence inside the transaction, all under the balance-row lock:
+ *
+ *   1. Idempotency: if a `kind='spend'` wallet_entries row already carries
+ *      @p reference, this is a retry — return the existing state
+ *      (`credited=false`), write nothing. Checked UNDER the lock, so a
+ *      same-user concurrent duplicate serializes on the balance row and the
+ *      loser sees the winner's committed row here instead of racing it. If
+ *      the existing row belongs to a DIFFERENT user, throw
+ *      DuplicateSpendReference instead — a retry can legitimately repeat a
+ *      reference, but never across wallets.
+ *   2. Sufficiency, in C++: `current < credits` throws InsufficientCredits
+ *      and rolls the transaction back — NO ledger row, no balance change, no
+ *      durable record of the refusal (unlike refund_capture's skip marker:
+ *      a refused spend moved no real-world money anywhere, so there is
+ *      nothing to reconcile — the caller just gets its 409 and decides). The
+ *      wallet_balances CHECK (credits >= 0) stays as defense in depth only.
+ *   3. Otherwise: `INSERT INTO wallet_entries (..., -credits, 'spend',
+ *      reference, note)` + the plain balance UPDATE, same transaction.
+ *
+ * A concurrent duplicate that slips past step 1 — two racing calls whose
+ * DIFFERENT user ids share a reference hold different balance-row locks, so
+ * nothing serializes them — loses on migration 009's partial UNIQUE index
+ * (SQLSTATE 23505), caught and reported as the idempotent existing state
+ * (same user) or DuplicateSpendReference (different user), never a raw 500.
+ * Same-user duplicates never reach the index: they serialize on the balance
+ * lock and the loser resolves at step 1.
+ *
+ * @param user_id   wallet owner (validated up front like adjust's ids —
+ *                  detail::check_user_id, outside the write transaction).
+ * @param credits   amount to debit, must be > 0.
+ * @param reference REQUIRED non-empty idempotency key, unique across all
+ *                  spend rows (migration 009).
+ * @param note      free-form context stored on the ledger row ('' is fine).
+ *
+ * @throws InvalidSpendAmount if @p credits <= 0.
+ * @throws MissingSpendReference if @p reference is empty.
+ * @throws MalformedUserId / UnknownUser if @p user_id is malformed / unknown.
+ * @throws InsufficientCredits if the locked balance can't cover @p credits.
+ * @throws DuplicateSpendReference if @p reference already names a different
+ *         user's spend.
+ */
+CreditResult spend(const std::string& user_id,
+                   std::int64_t credits,
+                   const std::string& reference,
+                   const std::string& note = "");
 
 }  // namespace Billing

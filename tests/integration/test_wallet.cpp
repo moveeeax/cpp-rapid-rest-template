@@ -2,16 +2,20 @@
  * @file test_wallet.cpp
  * @brief Integration tests for the billing module's money core:
  *        src/billing/Wallet.hpp (Billing::credit_capture / refund_capture /
- *        adjust / balance_of / history) plus src/repositories/BillingRepository.hpp
+ *        adjust / spend / balance_of / history) plus src/repositories/BillingRepository.hpp
  *        (Repositories::PackageRepository / PaymentRepository /
  *        BillingSettingsRepository).
  *
- * Needs the billing migrations (007/008) — applied unconditionally regardless
+ * Needs the billing migrations (007/008/009) — applied unconditionally regardless
  * of the billing.enabled flag, same pattern as test_post_repository.cpp for
  * the content module. Also covers UserRepository::remove() mapping the ON
  * DELETE RESTRICT foreign keys (payments, wallet_entries, wallet_balances →
  * users) to a typed 409 instead of a bare pqxx::sql_error / 500.
  */
+
+#include <atomic>
+#include <random>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -347,8 +351,8 @@ TEST_F(WalletTest, RefundCaptureRejectsInvalidAmounts) {
 }
 
 // A refund must never be silently dropped even when it would drive the
-// balance negative (the user already spent below the refund amount).
-// "spend" itself is a later phase — simulate the spent-down state directly.
+// balance negative (the user already spent below the refund amount) — the
+// spent-down state comes from the real Billing::spend writer.
 TEST_F(WalletTest, RefundBeyondRemainingBalanceMarksPaymentRefundedWithoutGoingNegative) {
     auto user_id = seed_user("buyer5@example.com");
     seed_payment(user_id, "ORDER-5", 1000, 1000);
@@ -356,19 +360,13 @@ TEST_F(WalletTest, RefundBeyondRemainingBalanceMarksPaymentRefundedWithoutGoingN
     ASSERT_TRUE(captured.credited);
     ASSERT_EQ(captured.balance, 1000);
 
-    Database::get().execute_write([&](auto& txn) {
-        txn.exec_params(
-            "INSERT INTO wallet_entries (user_id, delta_credits, kind, reference) VALUES ($1, -900, 'spend', 'sim')",
-            user_id);
-        txn.exec_params("UPDATE wallet_balances SET credits = credits - 900 WHERE user_id = $1", user_id);
-        return 0;
-    });
+    ASSERT_TRUE(Billing::spend(user_id, 900, "SPEND-DOWN-5").credited);
     ASSERT_EQ(Billing::balance_of(user_id), 100);
 
     auto refunded = Billing::refund_capture("CAPTURE-5", "REFUND-5", 1000);
     EXPECT_TRUE(refunded.credited);
     // The 1000-credit refund CANNOT apply (would drive balance to -900) — the
-    // wallet is left exactly where the simulated spend left it.
+    // wallet is left exactly where the spend left it.
     EXPECT_EQ(refunded.balance, 100);
     EXPECT_EQ(Billing::balance_of(user_id), 100);
 
@@ -376,7 +374,7 @@ TEST_F(WalletTest, RefundBeyondRemainingBalanceMarksPaymentRefundedWithoutGoingN
     ASSERT_TRUE(found.has_value());
     EXPECT_EQ(found->status, "refunded");
 
-    // No refund row was written — only the topup and the simulated spend exist.
+    // No refund row was written — only the topup and the spend exist.
     auto hist = Billing::history(user_id, 10, 0);
     ASSERT_EQ(hist.size(), 2u);
     for (const auto& e : hist)
@@ -512,14 +510,8 @@ TEST_F(WalletTest, DuplicateRefundIdAfterInsufficiencySkipNeverAppliesLater) {
     auto captured = Billing::credit_capture("ORDER-5E", "CAPTURE-5E", 1000, "USD");
     ASSERT_TRUE(captured.credited);
 
-    // Spend down so the (full) refund can't apply.
-    Database::get().execute_write([&](auto& txn) {
-        txn.exec_params(
-            "INSERT INTO wallet_entries (user_id, delta_credits, kind, reference) VALUES ($1, -950, 'spend', 'sim')",
-            user_id);
-        txn.exec_params("UPDATE wallet_balances SET credits = credits - 950 WHERE user_id = $1", user_id);
-        return 0;
-    });
+    // Spend down (via the real writer) so the (full) refund can't apply.
+    ASSERT_TRUE(Billing::spend(user_id, 950, "SPEND-DOWN-5E").credited);
     ASSERT_EQ(Billing::balance_of(user_id), 50);
 
     auto first = Billing::refund_capture("CAPTURE-5E", "REFUND-RECOVER", 1000);
@@ -622,6 +614,169 @@ TEST_F(WalletTest, AdjustThrowsOnMalformedAdminId) {
     EXPECT_EQ(Billing::history(user_id, 10, 0).size(), 0u);
 }
 
+// ── spend ────────────────────────────────────────────────────────────────────
+
+TEST_F(WalletTest, SpendWritesNegativeEntryAndMovesBalance) {
+    auto user_id = seed_user("spender1@example.com");
+    seed_payment(user_id, "ORDER-SP-1", 1000, 1000);
+    ASSERT_TRUE(Billing::credit_capture("ORDER-SP-1", "CAP-SP-1", 1000, "USD").credited);
+
+    auto result = Billing::spend(user_id, 300, "SPEND-1", "render job #42");
+    EXPECT_TRUE(result.credited);
+    EXPECT_EQ(result.balance, 700);
+    EXPECT_EQ(Billing::balance_of(user_id), 700);
+
+    auto hist = Billing::history(user_id, 10, 0);
+    ASSERT_EQ(hist.size(), 2u);
+    EXPECT_EQ(hist[0].kind, "spend");  // newest first
+    EXPECT_EQ(hist[0].delta_credits, -300);
+    EXPECT_EQ(hist[0].reference, "SPEND-1");
+    EXPECT_EQ(hist[0].note, "render job #42");
+}
+
+TEST_F(WalletTest, SpendInsufficientCreditsWritesNoLedgerRow) {
+    auto user_id = seed_user("spender2@example.com");
+    seed_payment(user_id, "ORDER-SP-2", 100, 100);
+    ASSERT_TRUE(Billing::credit_capture("ORDER-SP-2", "CAP-SP-2", 100, "USD").credited);
+
+    EXPECT_THROW(Billing::spend(user_id, 500, "SPEND-TOO-BIG"), Billing::InsufficientCredits);
+
+    // Nothing written — not a ledger row, not a balance change. And the
+    // refused reference is NOT burned: unlike a skipped refund there is no
+    // durable marker, so the same reference can succeed later once the
+    // wallet can afford it.
+    EXPECT_EQ(Billing::balance_of(user_id), 100);
+    EXPECT_EQ(Billing::history(user_id, 10, 0).size(), 1u);  // just the topup
+
+    auto admin_id = seed_user("spend-admin@example.com");
+    Billing::adjust(user_id, 1000, "top up for the test", admin_id);
+    auto retry = Billing::spend(user_id, 500, "SPEND-TOO-BIG");
+    EXPECT_TRUE(retry.credited);
+    EXPECT_EQ(retry.balance, 600);
+}
+
+// A brand-new user (no wallet_balances row at all) refused for insufficiency
+// must leave NO trace — the transaction rollback covers the materializing
+// insert too.
+TEST_F(WalletTest, SpendOnEmptyWalletRefusedWithoutMaterializingBalanceRow) {
+    auto user_id = seed_user("spender2b@example.com");
+
+    EXPECT_THROW(Billing::spend(user_id, 1, "SPEND-EMPTY"), Billing::InsufficientCredits);
+
+    auto has_row = Database::get().execute_read([&](auto& txn) {
+        auto r = txn.exec_params("SELECT 1 FROM wallet_balances WHERE user_id = $1", user_id);
+        return !r.empty();
+    });
+    EXPECT_FALSE(has_row);
+    EXPECT_EQ(Billing::history(user_id, 10, 0).size(), 0u);
+}
+
+TEST_F(WalletTest, SpendIsIdempotentOnReference) {
+    auto user_id = seed_user("spender3@example.com");
+    seed_payment(user_id, "ORDER-SP-3", 1000, 1000);
+    ASSERT_TRUE(Billing::credit_capture("ORDER-SP-3", "CAP-SP-3", 1000, "USD").credited);
+
+    auto first = Billing::spend(user_id, 200, "SPEND-IDEM");
+    ASSERT_TRUE(first.credited);
+    ASSERT_EQ(first.balance, 800);
+
+    // Same reference again — a retried charge — is a no-op reporting the
+    // existing state, exactly one ledger row.
+    auto retry = Billing::spend(user_id, 200, "SPEND-IDEM");
+    EXPECT_FALSE(retry.credited);
+    EXPECT_EQ(retry.balance, 800);
+
+    // Idempotency is keyed on the reference alone (mirrors credit_capture's
+    // per-capture-id idempotency): a retry that disagrees on the amount is
+    // still the same charge — no second debit, no re-validation.
+    auto retry_other_amount = Billing::spend(user_id, 999, "SPEND-IDEM");
+    EXPECT_FALSE(retry_other_amount.credited);
+    EXPECT_EQ(retry_other_amount.balance, 800);
+
+    EXPECT_EQ(Billing::balance_of(user_id), 800);
+    auto hist = Billing::history(user_id, 10, 0);
+    ASSERT_EQ(hist.size(), 2u);  // topup + exactly one spend
+}
+
+// Two threads racing the SAME reference must produce exactly one ledger row
+// and exactly one debit — the loser serializes on the balance-row lock and
+// resolves at the under-lock idempotency check (see Billing::spend's docs).
+TEST_F(WalletTest, ConcurrentDuplicateSpendDebitsExactlyOnce) {
+    auto user_id = seed_user("spender4@example.com");
+    seed_payment(user_id, "ORDER-SP-4", 1000, 1000);
+    ASSERT_TRUE(Billing::credit_capture("ORDER-SP-4", "CAP-SP-4", 1000, "USD").credited);
+
+    std::atomic<int> credited_count{0};
+    std::atomic<int> failures{0};
+    auto race = [&] {
+        try {
+            if (Billing::spend(user_id, 400, "SPEND-RACE").credited)
+                ++credited_count;
+        } catch (...) {
+            ++failures;
+        }
+    };
+    std::thread t1(race), t2(race);
+    t1.join();
+    t2.join();
+
+    EXPECT_EQ(failures.load(), 0);        // both calls succeed — one applies, one no-ops
+    EXPECT_EQ(credited_count.load(), 1);  // exactly one actually debited
+
+    EXPECT_EQ(Billing::balance_of(user_id), 600);
+    auto hist = Billing::history(user_id, 10, 0);
+    ASSERT_EQ(hist.size(), 2u);  // topup + exactly ONE spend row
+    int spend_rows = 0;
+    for (const auto& e : hist)
+        if (e.kind == "spend")
+            ++spend_rows;
+    EXPECT_EQ(spend_rows, 1);
+}
+
+TEST_F(WalletTest, SpendRejectsEmptyReference) {
+    auto user_id = seed_user("spender5@example.com");
+    seed_payment(user_id, "ORDER-SP-5", 1000, 1000);
+    ASSERT_TRUE(Billing::credit_capture("ORDER-SP-5", "CAP-SP-5", 1000, "USD").credited);
+
+    EXPECT_THROW(Billing::spend(user_id, 100, ""), Billing::MissingSpendReference);
+    EXPECT_EQ(Billing::balance_of(user_id), 1000);
+    EXPECT_EQ(Billing::history(user_id, 10, 0).size(), 1u);
+}
+
+TEST_F(WalletTest, SpendRejectsNonPositiveAmount) {
+    auto user_id = seed_user("spender5b@example.com");
+    EXPECT_THROW(Billing::spend(user_id, 0, "SPEND-ZERO"), Billing::InvalidSpendAmount);
+    // A negative "spend" must never silently CREDIT the wallet.
+    EXPECT_THROW(Billing::spend(user_id, -50, "SPEND-NEG"), Billing::InvalidSpendAmount);
+    EXPECT_EQ(Billing::history(user_id, 10, 0).size(), 0u);
+}
+
+// A reference is an idempotency key, never a cross-wallet one: reusing user
+// A's reference for user B is a conflict, not a silent no-op against the
+// wrong wallet.
+TEST_F(WalletTest, SpendRejectsReferenceReuseAcrossUsers) {
+    auto user_a = seed_user("spender6a@example.com");
+    auto user_b = seed_user("spender6b@example.com");
+    seed_payment(user_a, "ORDER-SP-6A", 1000, 1000);
+    seed_payment(user_b, "ORDER-SP-6B", 1000, 1000);
+    ASSERT_TRUE(Billing::credit_capture("ORDER-SP-6A", "CAP-SP-6A", 1000, "USD").credited);
+    ASSERT_TRUE(Billing::credit_capture("ORDER-SP-6B", "CAP-SP-6B", 1000, "USD").credited);
+
+    ASSERT_TRUE(Billing::spend(user_a, 100, "SPEND-SHARED-REF").credited);
+
+    EXPECT_THROW(Billing::spend(user_b, 100, "SPEND-SHARED-REF"), Billing::DuplicateSpendReference);
+    EXPECT_EQ(Billing::balance_of(user_b), 1000);  // B untouched
+    EXPECT_EQ(Billing::history(user_b, 10, 0).size(), 1u);
+}
+
+TEST_F(WalletTest, SpendThrowsOnUnknownUser) {
+    EXPECT_THROW(Billing::spend("00000000-0000-0000-0000-000000000000", 10, "SPEND-NOUSER"), Billing::UnknownUser);
+}
+
+TEST_F(WalletTest, SpendThrowsOnMalformedUserId) {
+    EXPECT_THROW(Billing::spend("not-a-uuid", 10, "SPEND-BADID"), Billing::MalformedUserId);
+}
+
 // ── the money invariant ──────────────────────────────────────────────────────
 
 TEST_F(WalletTest, LedgerSumEqualsCachedBalanceAfterMixedTraffic) {
@@ -639,10 +794,13 @@ TEST_F(WalletTest, LedgerSumEqualsCachedBalanceAfterMixedTraffic) {
     Billing::refund_capture("CAP-A1", "REFUND-MIX-1", 1000);
     Billing::adjust(user_a, 50, "bonus", admin_id);
     Billing::adjust(user_b, -100, "correction", admin_id);
-    // A duplicate capture attempt, a failed one, and a redelivered refund id
-    // — none of these should perturb the invariant.
+    Billing::spend(user_a, 200, "SPEND-MIX-1");
+    Billing::spend(user_b, 500, "SPEND-MIX-2");
+    // A duplicate capture attempt, a failed one, a redelivered refund id and
+    // a retried spend reference — none of these should perturb the invariant.
     Billing::credit_capture("ORDER-A2", "CAP-A2", 500, "USD");
     Billing::refund_capture("CAP-A1", "REFUND-MIX-1", 1000);
+    Billing::spend(user_a, 200, "SPEND-MIX-1");
     seed_payment(user_a, "ORDER-A3", 300, 300);
     Billing::credit_capture("ORDER-A3", "CAP-A3", 999, "USD");
 
@@ -696,6 +854,130 @@ TEST_F(WalletTest, LedgerSumEqualsCachedBalanceForNewUserAfterCreditThenAdjust) 
         sum += e.delta_credits;
     EXPECT_EQ(sum, Billing::balance_of(user_id));
     EXPECT_EQ(Billing::balance_of(user_id), 475);
+}
+
+// Randomized PROPERTY test, not an example test: ~300 pseudo-random
+// credit/refund/adjust/spend operations with pseudo-random amounts, checking
+// after every step that the two money invariants hold for the affected user:
+//
+//   1. SUM(wallet_entries.delta_credits) == wallet_balances.credits — the
+//      append-only ledger and its cache never disagree;
+//   2. wallet_balances.credits >= 0 — no operation mix can overdraw.
+//
+// Operations are allowed — expected — to be refused along the way
+// (InsufficientCredits on a too-large spend, InsufficientBalance on a
+// too-negative adjust, InvalidRefundAmount on a cumulative over-refund):
+// refusals are part of the model, and the property is that a refusal
+// perturbs NOTHING. Retried spend references (deliberately mixed in) must
+// no-op rather than double-debit.
+//
+// Why hand-rolled rather than a property-testing library (rapidcheck &c.):
+// a new vcpkg dependency invalidates the Dockerfile's dependency-install
+// layer and rebuilds the entire ~29-package world, blowing CI timeouts
+// (see the vcpkg.json "Don'ts" in CLAUDE.md) — rejected for what a seeded
+// mt19937 loop covers just as well, minus automatic shrinking.
+//
+// Determinism: CONSTANT seed, and all randomness is derived from raw
+// mt19937 output (whose sequence the C++ standard fully specifies) via
+// modulo — never std::uniform_int_distribution, whose mapping is
+// implementation-defined and would make failures irreproducible across
+// stdlibs. A failure therefore replays exactly, on any platform, from the
+// step number in the assertion message.
+TEST_F(WalletTest, RandomizedMixedOperationsPreserveLedgerInvariants) {
+    std::mt19937 rng(20260823u);  // constant seed — reproducible, see above
+    auto pick = [&](std::uint32_t n) { return static_cast<std::int64_t>(rng() % n); };
+
+    const std::vector<std::string> user_ids = {seed_user("rand-a@example.com"), seed_user("rand-b@example.com")};
+    const auto admin_id = seed_user("rand-admin@example.com");
+
+    struct CaptureRec {
+        std::string capture_id;
+        std::int64_t amount_cents;
+    };
+    std::vector<CaptureRec> captures;     // refund targets
+    std::vector<std::string> spend_refs;  // for deliberate idempotent retries
+    int order_seq = 0, refund_seq = 0, spend_seq = 0;
+    int applied_spends = 0, refused_spends = 0;
+
+    auto check_invariants = [&](const std::string& uid, int step) {
+        auto hist = Billing::history(uid, 1000, 0);
+        std::int64_t sum = 0;
+        for (const auto& e : hist)
+            sum += e.delta_credits;
+        const auto cached = Billing::balance_of(uid);
+        ASSERT_EQ(sum, cached) << "ledger/cache desync for user " << uid << " at step " << step;
+        ASSERT_GE(cached, 0) << "negative balance for user " << uid << " at step " << step;
+    };
+
+    for (int step = 0; step < 300; ++step) {
+        const auto& uid = user_ids[pick(2)];
+        const auto op = pick(100);
+
+        if (op < 30) {
+            // Credit: a fresh order captured at 1 credit per cent.
+            const std::int64_t amount = 1 + pick(2000);
+            const std::string order_id = "RAND-ORDER-" + std::to_string(order_seq++);
+            seed_payment(uid, order_id, amount, /*credits_expected=*/amount);
+            const auto cap = Billing::credit_capture(order_id, "RAND-CAP-" + order_id, amount, "USD");
+            ASSERT_TRUE(cap.credited) << "step " << step;
+            captures.push_back({"RAND-CAP-" + order_id, amount});
+        } else if (op < 60) {
+            // Spend: usually a fresh reference, sometimes (~1 in 6) a retry
+            // of an earlier one — which must no-op, never double-debit.
+            std::string ref;
+            if (!spend_refs.empty() && pick(6) == 0) {
+                ref = spend_refs[pick(static_cast<std::uint32_t>(spend_refs.size()))];
+            } else {
+                ref = "RAND-SPEND-" + std::to_string(spend_seq++);
+            }
+            try {
+                if (Billing::spend(uid, 1 + pick(1500), ref).credited) {
+                    ++applied_spends;
+                    spend_refs.push_back(ref);
+                }
+            } catch (const Billing::InsufficientCredits&) {
+                ++refused_spends;  // expected: the wallet may well be short
+            } catch (const Billing::DuplicateSpendReference&) {
+                // expected: a retried reference may land on the OTHER user
+            }
+        } else if (op < 80 && !captures.empty()) {
+            // Refund: a random capture, a random amount up to its full
+            // value — the cumulative cap may refuse it, the wallet may be
+            // short (skipped_insufficient), tiny amounts may floor to 0
+            // credits: all are part of the model.
+            const auto& cap = captures[pick(static_cast<std::uint32_t>(captures.size()))];
+            const std::int64_t amount = 1 + pick(static_cast<std::uint32_t>(cap.amount_cents));
+            try {
+                Billing::refund_capture(cap.capture_id, "RAND-REFUND-" + std::to_string(refund_seq++), amount);
+            } catch (const Billing::InvalidRefundAmount&) {
+                // expected: cumulative refunds for this capture exceeded it
+            }
+        } else {
+            // Adjust: -500..+500, never 0.
+            std::int64_t delta = pick(500) + 1;
+            if (pick(2) == 0)
+                delta = -delta;
+            try {
+                Billing::adjust(uid, delta, "random adjustment", admin_id);
+            } catch (const Billing::InsufficientBalance&) {
+                // expected: a negative delta the wallet can't absorb
+            }
+        }
+
+        check_invariants(uid, step);
+        if (::testing::Test::HasFatalFailure())
+            return;  // stop at the FIRST violating step — that's the repro
+    }
+
+    for (const auto& uid : user_ids)
+        check_invariants(uid, /*step=*/300);
+
+    // Sanity that the mix actually exercised the writer under test in both
+    // directions — some spends applied AND some were refused (deterministic
+    // given the constant seed; this documents that the distribution isn't
+    // degenerate, not a tuning knob).
+    EXPECT_GT(applied_spends, 0);
+    EXPECT_GT(refused_spends, 0);
 }
 
 // ── UserRepository::remove() vs. billing history ────────────────────────────
