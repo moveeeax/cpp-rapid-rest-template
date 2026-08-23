@@ -164,6 +164,14 @@ These don't fall out of reading the code; they were learned the hard way.
 17. **Multi-table test cleanup goes through `TestHelpers::wipe_app_data()`.** It is the one place that knows the FK order (users CASCADE before extra roles; posts/audit_log/used_tokens ride one TRUNCATE) and re-seeds migration 001's two roles. Don't hand-roll TRUNCATE/DELETE sequences in fixtures.
 18. **Never accumulate with a self-referencing upsert** (`INSERT ... ON CONFLICT (k) DO UPDATE SET x = t.x + EXCLUDED.x`) through `Database::execute_write`. In a downstream fork every second-or-later write computed as though the existing row's value were 0 — invisible for positive deltas, fatal for negative ones (`CHECK` violations on refunds). CI evidence proved the conflicting row WAS detected and visible earlier in the same transaction, yet the self-referencing SET still read it as absent; the root cause was never found (forensics: site fork, commit b676430). Safe idiom: `INSERT ... ON CONFLICT DO NOTHING` (materialize the row so it can be locked) → `SELECT ... FOR UPDATE` → compute the new total in C++ → plain `UPDATE`.
 19. **After-response side effects go through the 4-arg `with_repo_errors` overload** (email dispatch, enqueue, webhook fire): `after_fn` runs once the guarded block completed, OUTSIDE the catch ladder, so a throwing side effect can never fire `callback` a second time. Stash results into a `std::optional` captured by reference if `after_fn` needs them (learned downstream: a receipt-email dispatch inside the guarded lambda double-fired the callback).
+20. **Events that must not be lost go through the transactional outbox** (`src/jobs/Outbox.hpp`, migration 010, opt-in via `OUTBOX_DRAIN_INTERVAL_SEC`). The after-response hook above is best-effort BY DESIGN: a process dying between the DB commit and `Jobs::submit` loses the event, and a failed submit is only logged. Fine for a re-requestable confirm-email; not fine for money paths, where "wallet debited but the receipt/webhook never fired" is a truth defect someone repairs by hand. There, write the event in the SAME transaction as the ledger write — commit makes both durable, rollback erases both — and the periodic drain relays it to the job queue (at-least-once; handlers must tolerate a duplicate, which Jobs' retry/lease paths already require). A billing-fork receipt dispatch is three lines inside the existing wallet transaction:
+    ```cpp
+    // inside Database::execute_transaction([&](auto& txn) { ... ledger write ... 
+    if (result.credited)  // same dedupe gate BillingEmails::receipt documents
+        Jobs::Outbox::enqueue(txn, Email::SendEmail::kJobType,
+                              {{"to", user.email}, {"subject", subject}, {"text", text}});
+    ```
+    The template's own email flows deliberately stay on the after-response path (bit-for-bit unchanged behaviour) — the outbox is the upgrade a fork opts specific call sites into, not a global rewire.
 
 ### Frontend gotchas
 
@@ -193,5 +201,6 @@ The scaffolding scripts are the entry points:
 | Check spec ↔ code drift | `./scripts/check-openapi-drift.sh` |
 | Validate Helm render | `make helm-validate` |
 | Worked CRUD example | `docs/EXAMPLES.md` |
+| Must-not-lose event dispatch (outbox vs after-response) | `src/jobs/Outbox.hpp` (doc comment is the decision guide; gotcha 20 above has the worked example) |
 | Money / ledger / payment-provider reference | `src/billing/Wallet.hpp` (billing module: append-only ledger, idempotent capture/refund/spend — spend is reference-keyed via migration 009's partial unique index, no HTTP endpoint (charging is fork domain), integer-only money; best-effort emails in `src/email/BillingEmails.hpp`) |
 | ADRs / architecture decisions | `docs/adr/` |
