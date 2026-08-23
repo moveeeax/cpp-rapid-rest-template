@@ -42,7 +42,61 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
   `check-module-deps.sh` now allowlists `core/Core.cpp` as Core.hpp's own
   body file. No behavior change.
 
+- Phase 1 hub split: module flags live in a ~50-line `core/Modules.hpp`
+  (controllers no longer pull Kafka/PayPal/OTel headers to check a role),
+  `api/Api.hpp` is included by the two server binaries only, the
+  webhooks→email include edge is gone (`utils/CurlInit.hpp`). `make
+  test-quick` now really rebuilds (the old no-rebuild behavior moved to
+  `make test-rerun`); `make test-local NAME='Foo*'` documented as the inner
+  loop.
+- The utils hubs are de-inlined too (`Config`, `Strings`, `ErrorResponse`,
+  `Crypto`, `api/Api`) — OpenSSL is confined to `Crypto.cpp`; Swagger UI is
+  pinned to `swagger-ui-dist@5.32.14` with SRI integrity hashes.
+- CI: C++ compiles go through sccache backed by the Actions cache (warm
+  build-and-test ~17 → ~11 min), and the five heavy jobs self-scope — they
+  always start, compute the changed-file set themselves and exit green in
+  seconds when nothing they cover changed (no `paths:` filters, so no
+  skipped-job-reports-success trap). clang-tidy carries its measured
+  baseline (364 unique warnings) instead of an eternal TODO.
+- `new-resource.sh`/`new-endpoint.sh` emit the post-refactor patterns
+  (RepoErrors bases so `with_repo_errors` maps 404/409, `require_valid_uuid`,
+  `Response::paginated/created`, `throw_on<E>`); the generated admin test
+  authenticates (the harness runs auth.mode=jwt).
+- `src/` quality pass: repeated guard/JSON/SQLSTATE blocks collapsed into
+  shared helpers, dead includes dropped, hot-path copies removed (JWT claims
+  moved not copied, request bodies handled as views). 49 files, behavior
+  bit-for-bit.
+
 ### Added
+- Billing SPA pages — `/billing` (wallet, packages, top-up), `/billing/return`,
+  `/billing/cancel`, `/admin/billing` (packages/payments/settings) + a Wallet
+  card with adjust dialog on the admin user page. Nav shows billing only when
+  the API answers (probe-by-request); the fork's recharts metrics dashboard
+  stays behind as a documented extension point — no new dependencies.
+- Multi-tenancy starter: `scripts/add-orgs.sh` installs organizations,
+  membership, org-claim JWT mint/switch, deny-by-default permission matrix
+  and `Tenancy::OrgCrudBase` (structural read isolation — global finds do
+  not exist); `new-resource.sh --org-scoped` scaffolds org-scoped resources.
+  Passive template part: optional `org` claim on `AuthPrincipal`.
+- Gate selftest `scripts/check-selftest.sh`: 18 planted breakages across all
+  eight check gates, each must be caught AND named on every CI run (plus a
+  nightly unconditional backstop, `.github/workflows/gates-nightly.yml`).
+- Opt-in rendered-artifact gate skeleton for document-producing forks:
+  `scripts/check-artifact.py` + `render-artifacts.sh` + mandatory selftest
+  and `docs/RENDER-GATE.md` (generalized from the cyber-accountant fork).
+- `scripts/release.sh <ver>` edits every version point (CMake, 9 helm image
+  pins, 4 Chart appVersions) in one counted pass; `check-version-sync.sh`
+  now gates the helm pins too. The frozen `appVersion: 1.4.0` (the default
+  image tag for standalone chart installs) is unfrozen and gated.
+- `scripts/check-config-sync.sh`: every `cfg.get` triple must exist in
+  `config.json`, `config.sample.json` and `docs/CONFIG.md`; its first run
+  found and fixed 78 real drifts (33 keys missing from config.json, stale
+  doc defaults).
+- `scripts/check-module-deps.sh`: the include graph between src/ directories
+  is declared in `docs/module-deps.txt` and gated (62 edges; hard rules —
+  `utils` imports nothing, `Core.hpp` is includable by three files only).
+- `Database::install_for_testing` seam (mirrors Cache): repository-level
+  logic is now unit-testable without Postgres via `detail::ErasedTxn`.
 - Billing module (`BILLING_ENABLED`, off by default) — ported from the site
   fork (#24): PayPal checkout top-ups credited to an append-only wallet
   ledger (`src/billing/Wallet.hpp`, migrations 007/008), signature-verified
