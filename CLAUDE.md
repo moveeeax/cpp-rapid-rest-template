@@ -117,6 +117,14 @@ honest — never a `paths:` filter), diff the change set themselves, and exit
 green in seconds when their input paths are untouched (docs/CI-PROFILES.md
 explains the mechanism and the path lists).
 
+Release supply chain: release.yml also generates SPDX SBOMs (syft), signs
+all three images keyless with cosign by digest and attests the SBOMs
+(verify commands: SECURITY.md). The swagger-ui-dist CDN pin in
+`src/api/Middleware.cpp` is Renovate-tracked (regex manager, never
+automerged — bumps need both sha384 SRI hashes re-pinned by hand, recipe in
+the comment at the pin); the nightly `swagger-sri-guard` job in
+gates-nightly.yml re-downloads the pinned files and fails on pin/hash drift.
+
 An opt-in rendered-artifact gate for forks that render documents ships as
 `scripts/check-artifact.py` + `scripts/render-artifacts.sh` + a mandatory
 selftest (`scripts/check-artifact-selftest.sh`) — not wired into this repo's

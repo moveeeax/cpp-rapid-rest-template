@@ -79,7 +79,7 @@ question instead of grepping the tree.
 |---|---|
 | [`../.github/workflows/ci.yml`](../.github/workflows/ci.yml) | GitHub Actions CI: build + test + format + secret-scan |
 | [`CI-PROFILES.md`](CI-PROFILES.md) | Hosted vs self-hosted runner profiles: serialize-vs-parallel, cache layers, honest timeouts, retry policy, why arm64/QEMU is out |
-| [`../.github/workflows/release.yml`](../.github/workflows/release.yml) | Tag-driven multi-arch image build + draft release |
+| [`../.github/workflows/release.yml`](../.github/workflows/release.yml) | Tag-driven image build → Trivy gate → promote → SPDX SBOM + cosign keyless sign/attest → GitHub Release (verify: [`../SECURITY.md`](../SECURITY.md)) |
 | [`RENDER-GATE.md`](RENDER-GATE.md) | Opt-in rendered-artifact gate for forks that render documents (Typst/LaTeX/HTML→PDF): contract, provenance rule, selftest, example CI job — not wired into this repo's CI |
 | [`RUNBOOK.md`](RUNBOOK.md) | Operator runbook: what to do when an alert fires (each alert's `runbook_url` anchors here) |
 | [`SLO.md`](SLO.md) | SLOs + alert thresholds — the rationale behind the Prometheus rules |

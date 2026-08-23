@@ -74,3 +74,30 @@ Before shipping this template to production:
 - [ ] TLS termination at the ingress (cert-manager or equivalent).
 - [ ] Image scan (Trivy / Snyk) blocking CRITICAL.
 - [ ] PrometheusRule alerts wired to pager.
+- [ ] Release images verified against their cosign signatures (below).
+
+## Verifying release images and SBOMs
+
+Every release image (`ghcr.io/moveeeax/cpp-rapid-rest-template{,-worker,-frontend}`)
+is signed **keyless** with cosign from the release workflow's OIDC identity —
+there is no signing key to leak — and carries an SPDX SBOM as a cosign
+attestation (the same SBOM files are attached to the GitHub Release as assets).
+To verify a pulled image and its SBOM:
+
+```sh
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/moveeeax/cpp-rapid-rest-template/\.github/workflows/release\.yml@refs/tags/v' \
+  ghcr.io/moveeeax/cpp-rapid-rest-template:<version>
+
+cosign verify-attestation --type spdxjson \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/moveeeax/cpp-rapid-rest-template/\.github/workflows/release\.yml@refs/tags/v' \
+  ghcr.io/moveeeax/cpp-rapid-rest-template:<version>
+```
+
+Same commands for the `-worker` / `-frontend` images. Forks that publish their
+own releases substitute their `owner/repo` in both the image name and the
+identity regexp (the workflow derives the namespace from the repository, so
+fork signatures carry the fork's identity — upstream and fork images are
+cryptographically distinguishable).
