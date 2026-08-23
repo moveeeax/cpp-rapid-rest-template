@@ -27,15 +27,22 @@ set -euo pipefail
 DRY_RUN=0
 FORCE=0
 NO_DEMO=0
+MINIMAL=0
+WITH_ORGS=0
 ARGS=()
 for arg in "$@"; do
     case "$arg" in
     --dry-run | -n) DRY_RUN=1 ;;
     --force | -f) FORCE=1 ;;
     --no-demo) NO_DEMO=1 ;;
+    --minimal)
+        MINIMAL=1
+        NO_DEMO=1
+        ;;
+    --with-orgs) WITH_ORGS=1 ;;
     --help | -h)
         cat <<USAGE
-Usage: $0 [--dry-run] [--force] <project-name> [registry] [domain]
+Usage: $0 [--dry-run] [--force] [--no-demo | --minimal] [--with-orgs] <project-name> [registry] [domain]
 
   --dry-run, -n   Print every file that would be touched and the patterns that
                   would run, without modifying anything on disk.
@@ -48,12 +55,22 @@ Usage: $0 [--dry-run] [--force] <project-name> [registry] [domain]
                   "Live demo" block (demo URL + public demo credentials). The
                   C++ app — auth, User/Role/Audit, jobs — is NOT a demo and is
                   kept. See REMOVING-THE-DEMO.md.
+  --minimal       Everything --no-demo does, PLUS remove the content module
+                  (posts / uploads / sitemap — the template's worked example
+                  of a feature module) via scripts/remove-content-module.sh:
+                  controllers, repository, migration 006, routes, OpenAPI
+                  blocks, tests, admin SPA pages, helm/compose wiring. The
+                  route/config sync gates stay green by construction.
+  --with-orgs     After the rename, run scripts/add-orgs.sh — the one-shot
+                  multi-tenancy (organizations) starter kit: src/tenancy/,
+                  org guards, orgs API + migration + tests (docs/ORGS.md).
 
   domain          Your host/domain — replaces the author's tarassov.me in
                   badges / demo URLs / SECURITY.md (default: example.com).
 
 Example:
   $0 my-service docker.io/myorg example.org
+  $0 --minimal --with-orgs my-saas docker.io/myorg example.org
   $0 --dry-run my-service docker.io/myorg
 USAGE
         exit 0
@@ -162,8 +179,9 @@ done < <(
         -o -name '*.md' -o -name '*.conf' -o -name '*.env' -o -name '.env.*' \
         -o -name '*.txt' -o -name '*.lock' -o -name '*.sample' \
         -o -name '.gitignore' -o -name '.gitlab-ci.yml' \
-        -o -name 'Chart.yaml' \) \
+        -o -name 'Chart.yaml' -o -name '*.toml' \) \
         -not -path './.git/*' \
+        -not -path './docs/superpowers/*' \
         -not -path './build/*' \
         -not -path './vcpkg_installed/*' \
         -not -path './vcpkg/*' \
@@ -281,6 +299,15 @@ if [[ $DRY_RUN -eq 1 ]]; then
             echo "==> Would strip the README 'Live demo' block + its Contents entry"
         fi
     fi
+    if [[ $MINIMAL -eq 1 ]]; then
+        echo "==> Would remove the content module (scripts/remove-content-module.sh):"
+        echo "    posts/uploads/sitemap controllers + repository + migration 006 +"
+        echo "    routes/OpenAPI blocks + tests + admin SPA pages + helm/compose wiring"
+    fi
+    if [[ $WITH_ORGS -eq 1 ]]; then
+        echo "==> Would install the multi-tenancy starter kit (scripts/add-orgs.sh):"
+        echo "    src/tenancy/, org guards, orgs API + migration + tests (docs/ORGS.md)"
+    fi
     echo ""
     echo "DRY RUN complete. Re-run without --dry-run to apply."
     exit 0
@@ -343,7 +370,10 @@ echo ""
 # UNAMBIGUOUS author/template tokens are flagged: bare "cpp-api"/"cpp_api" are
 # excluded so a fork named e.g. "cpp-api-gateway" doesn't trip it. Vendor /
 # build / generated dirs and this script itself (which necessarily contains the
-# tokens) are skipped. -I skips binaries (portable across GNU/BSD grep).
+# tokens) are skipped, and so is docs/superpowers/ — the archived plan/spec
+# records deliberately keep pre-rename identifiers verbatim (they are history,
+# not live config), which is also why the sed pass above leaves them alone.
+# -I skips binaries (portable across GNU/BSD grep).
 # Strip the flask-base reference material (opt-in). It exists to teach the
 # parity mapping; a shipped fork doesn't need ~21 MB of Python or the pattern
 # doc. The actual app (auth/User/Role/Audit/jobs) is NOT touched.
@@ -381,6 +411,15 @@ if [[ $NO_DEMO -eq 1 ]]; then
     fi
 fi
 
+# ── Strip the content module (--minimal) ────────────────────────────────────
+# Runs BEFORE the verification scan so a failure there covers the edited tree.
+# The remover is a standalone one-shot script — everything it deletes/patches
+# is path-anchored, not name-anchored, so it is rename-safe by construction.
+if [[ $MINIMAL -eq 1 ]]; then
+    echo "==> --minimal: removing the content module"
+    "$ROOT/scripts/remove-content-module.sh"
+fi
+
 echo "==> Verifying rename completeness"
 LEFTOVER_RE='cpp-rapid-rest-template|cpp_api_template|cpp_api_bench|cpp_api_service|cpp_worker_service|cpp_producer|cpp-api-team|resert/|ghcr\.io/resert|tarassov\.me|46\.225\.37\.165|admin@talos-nbg1|DemoAdmin-2026|michael@tarassov\.me'
 leftovers="$(grep -rInE "$LEFTOVER_RE" . \
@@ -389,7 +428,8 @@ leftovers="$(grep -rInE "$LEFTOVER_RE" . \
     --exclude-dir=.git --exclude-dir=build \
     --exclude-dir=vcpkg_installed --exclude-dir=vcpkg \
     --exclude-dir=node_modules --exclude-dir=dist \
-    --exclude-dir=html --exclude-dir=_reference 2>/dev/null || true)"
+    --exclude-dir=html --exclude-dir=_reference \
+    --exclude-dir=superpowers 2>/dev/null || true)"
 
 if [[ -n "$leftovers" ]]; then
     echo "" >&2
@@ -420,6 +460,19 @@ if command -v helm >/dev/null 2>&1; then
 else
     echo "WARNING: helm not installed — if any helm/*/Chart.yaml was renamed, run" >&2
     echo "         'helm dependency update' in each chart with a Chart.lock before CI." >&2
+fi
+
+# ── Install the multi-tenancy starter kit (--with-orgs) ─────────────────────
+# Runs LAST: add-orgs.sh generates fresh files (they carry no template tokens,
+# so the verification above stays honest) and patches by content anchors that
+# are rename-independent (#include lines, `namespace Api {`, mint_session's
+# jwt_issuer branch), so it works identically before or after the rename.
+# Its migration takes the next free NNN — after --minimal that keeps the
+# deliberate gap at 006.
+if [[ $WITH_ORGS -eq 1 ]]; then
+    echo ""
+    echo "==> --with-orgs: installing the multi-tenancy starter kit"
+    "$ROOT/scripts/add-orgs.sh"
 fi
 echo ""
 echo "Done. Review the full diff with: git diff"

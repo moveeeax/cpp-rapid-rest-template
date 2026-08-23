@@ -43,7 +43,7 @@ data:
         }
 
         location /api/ {
-            # Media uploads accept up to 5 MB (UploadController cap); the nginx
+            # Media uploads accept up to 5 MB (the app's upload cap); the nginx
             # default is 1m, which 413s a normal photo before it reaches the
             # backend. 6m leaves headroom for multipart overhead.
             client_max_body_size 6m;
@@ -62,6 +62,7 @@ data:
             proxy_connect_timeout 5s;
         }
 
+        # init-project:content:start
         # Content module (content.enabled): markdown posts, sitemap and uploads
         # are backend routes, not SPA routes — proxy them like /api/. With the
         # module off the backend answers 404. KEEP IN SYNC with
@@ -90,4 +91,5 @@ data:
             proxy_read_timeout 30s;
             proxy_connect_timeout 5s;
         }
+        # init-project:content:end
     }
