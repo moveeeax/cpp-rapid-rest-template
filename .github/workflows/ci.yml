@@ -193,7 +193,7 @@ jobs:
         run: ./scripts/check-routes-registered.sh
       - name: Check test-bucket filter sync
         run: ./scripts/check-test-buckets.sh
-      - name: Check version sync (CMakeLists vs CHANGELOG)
+      - name: Check version sync (CMakeLists + helm pins + appVersions vs CHANGELOG)
         run: ./scripts/check-version-sync.sh
       - name: Check frontend nginx configs in sync (compose vs helm)
         run: ./scripts/check-frontend-nginx-sync.sh
@@ -258,7 +258,7 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
-      - name: Gate selftest (14 planted breakages must be caught)
+      - name: Gate selftest (16 planted breakages must be caught)
         if: steps.scope.outputs.relevant == 'true'
         run: ./scripts/check-selftest.sh
 
