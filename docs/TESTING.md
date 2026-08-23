@@ -53,10 +53,15 @@ them those buckets are skipped and the reported coverage drops accordingly.
   behavior.
 - **Frontend** has unit tests for the session-refresh machinery and the
   permission mirror, but no component/route tests for the admin/auth UI.
-- **Sanitizers (ASan/UBSan)** currently cover the **unit** bucket only. Compiling
-  the integration TUs under ASan OOM'd an 8 GB build VM (heavy header-only TUs,
-  no shared object file); extending it is deferred until the bodies are extracted
-  into a single compiled `app_core` object (see `docs/adr/0003-header-only-modules.md`).
+- **Sanitizers (ASan/UBSan and TSan)** cover the **unit** and
+  **integration/api** buckets: the CI `sanitizers` and `tsan` jobs build both
+  test binaries and run the integration one against the compose `test`-profile
+  Postgres/Redis with `CI_REQUIRE_INFRA=1` (a missing sidecar fails the run
+  instead of skipping it green). The **e2e** binary is still uninstrumented.
+  Historical note: integration was unit-only for a while — compiling its TUs
+  under ASan OOM'd an 8 GB build VM back when every heavy body was header-only;
+  the `app_core` STATIC extraction (ADR 0003 as amended) compiles those bodies
+  once and removed the blocker.
 
 ## A disabled test that marks a real bug
 
