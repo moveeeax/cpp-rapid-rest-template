@@ -241,7 +241,7 @@ void shutdown();
 
 bool health_check();
 
-// Feature-module switches (Core::content_enabled / Core::billing_enabled) and
+// Feature-module switches (the Core::<module>_enabled() accessors) and
 // the shutdown flag (Core::is_shutting_down) live in core/Modules.hpp —
 // included above — so controllers can consult them without pulling in this
 // composition root.

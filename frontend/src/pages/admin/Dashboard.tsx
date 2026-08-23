@@ -60,6 +60,7 @@ export function AdminDashboardPage() {
             </CardHeader>
           </Card>
         </Link>
+        {/* init-project:content:start */}
         <Link to="/admin/posts">
           <Card className="hover:bg-accent transition-colors h-full">
             <CardHeader>
@@ -78,6 +79,7 @@ export function AdminDashboardPage() {
             </CardHeader>
           </Card>
         </Link>
+        {/* init-project:content:end */}
         <Link to="/admin/billing">
           <Card className="hover:bg-accent transition-colors h-full">
             <CardHeader>

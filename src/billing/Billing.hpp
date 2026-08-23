@@ -15,7 +15,7 @@
  *          Core::initialize() calls Billing::initialize() so an enabled
  *          module with missing PayPal credentials fails at boot, not on the
  *          first request. Gate every HTTP handler of this module on its
- *          FIRST line, before any auth guard — same idiom as PostsController:
+ *          FIRST line, before any auth guard — the standard module idiom:
  *
  *              if (!Core::billing_enabled()) {
  *                  callback(ErrorResponse::not_found("billing"));

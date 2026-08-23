@@ -127,8 +127,8 @@ public:
 
 private:
     /// Module gate — same contract as BillingController::require_billing_enabled
-    /// (mirrors Api::require_content_enabled in Guards.hpp; kept
-    /// controller-local because Guards.hpp has no generic per-module variant).
+    /// (kept controller-local because Guards.hpp has no generic per-module
+    /// variant).
     static bool require_billing_enabled(const std::function<void(const HttpResponsePtr&)>& callback);
 
     /// Acting admin's principal subject for the audit trail ("" when auth off).
