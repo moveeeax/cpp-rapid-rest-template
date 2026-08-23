@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <iterator>
 #include <string>
 #include <vector>
 

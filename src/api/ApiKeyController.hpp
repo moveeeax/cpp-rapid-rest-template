@@ -3,6 +3,12 @@
  * @brief Manage the caller's own API keys: create / list / revoke. Owner-scoped
  *        (API_REQUIRE_OWNER) so a user only ever sees or revokes their own keys.
  *        The secret is returned exactly ONCE, from create().
+ *
+ * Declarations only — the handler bodies live in ApiKeyController.cpp
+ * (compiled once into app_core; ADR 0003 as amended 2026-08-22). The route
+ * macros (ADD_METHOD_TO) must stay in this header: Drogon's METHOD_LIST
+ * registration is part of the class definition, and
+ * scripts/check-routes-registered.sh greps the src/api headers for them.
  */
 
 #pragma once
@@ -12,14 +18,7 @@
 
 #include <drogon/HttpController.h>
 
-#include <nlohmann/json.hpp>
-
-#include "api/Guards.hpp"
-#include "api/HandlerSupport.hpp"
-#include "api/Validation.hpp"
-#include "repositories/ApiKeyRepository.hpp"
-#include "security/ApiKeys.hpp"
-#include "utils/ErrorResponse.hpp"
+#include <nlohmann/json_fwd.hpp>
 
 namespace Api {
 
@@ -34,52 +33,13 @@ public:
     ADD_METHOD_TO(ApiKeyController::remove, "/api/v1/account/api-keys/{1}", Delete);
     METHOD_LIST_END
 
-    void list(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-        API_REQUIRE_OWNER(req, callback, owner);
-        Repositories::ApiKeyRepository repo;
-        auto keys = repo.list_for_user(owner);
-        const json data = to_json_array(keys);
-        callback(Response::ok({{"data", data}, {"total", data.size()}}));
-    }
+    void list(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
 
-    void create(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-        API_REQUIRE_OWNER(req, callback, owner);
-        json body;
-        if (!Validation::parse_body(req, body, callback))
-            return;
-        Validation::Errors errs;
-        // require_string: a non-string "name" would reach get<std::string>()
-        // below and throw type_error.302 → bare 500 instead of a 400.
-        Validation::require_string(errs, body, "name");
-        if (errs.any()) {
-            callback(Validation::response_400(errs));
-            return;
-        }
-
-        const auto gen = Security::ApiKeys::generate();
-        Repositories::ApiKeyRepository repo;
-        auto key = repo.create(owner, body["name"].get<std::string>(), gen.key_hash, gen.prefix);
-
-        // The plaintext key is surfaced ONCE here; it is never stored (only its
-        // hash) and can never be shown again. The client must save it now.
-        json out = key;
-        out["key"] = gen.plaintext;
-        callback(Response::created(out));
-    }
+    void create(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
 
     void remove(const HttpRequestPtr& req,
                 std::function<void(const HttpResponsePtr&)>&& callback,
-                const std::string& id) {
-        API_REQUIRE_OWNER(req, callback, owner);
-        Repositories::ApiKeyRepository repo;
-        if (!repo.revoke(id, owner)) {
-            // Not found, already revoked, or someone else's key — all the same
-            // 404 so a caller can't probe which key ids exist.
-            callback(ErrorResponse::not_found("api_key"));
-            return;
-        }
-        callback(Response::ok({{"message", "API key revoked"}}));
-    }
+                const std::string& id);
 };
 
 }  // namespace Api
