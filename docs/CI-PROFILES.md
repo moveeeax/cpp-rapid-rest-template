@@ -49,12 +49,19 @@ here was learned the expensive way on downstream forks of this template.
   `ACTIONS_CACHE_SERVICE_V2=on` is mandatory (without it sccache's ghac
   backend silently caches nothing). With 100% sccache hits the builder-stage
   compile takes ~24 s; warm wall clocks are roughly build-and-test ~12 min,
-  clang-tidy ~4, sanitizers ~4, tsan ~4, runtime-smoke ~2.5.
+  clang-tidy ~4, runtime-smoke ~2.5. `sanitizers` and `tsan` were ~4 when
+  they covered the unit bucket only; since they also build and run the
+  integration/api bucket against the compose `test`-profile Postgres/Redis
+  sidecars (with `CI_REQUIRE_INFRA=1` so missing infra fails instead of
+  skipping green), budget extra minutes for the second binary's compile plus
+  the instrumented suite run — more under TSan than ASan.
 - **Timeouts must let one cold build finish.** A job killed by its timeout
   BEFORE it exports the gha cache leaves the next run just as cold — the
   short timeout then reproduces the slow run it was guarding against. That is
-  why the heavy compile jobs (build-and-test, sanitizers, tsan) carry
-  `timeout-minutes: 90`, not 60 (clang-tidy gets 45).
+  why the heavy compile jobs carry generous timeouts: build-and-test
+  `timeout-minutes: 90`, sanitizers and tsan `120` (cold vcpkg world + the
+  slower instrumented compile + the instrumented integration run),
+  clang-tidy 90.
 
 ## Self-hosted / weak-runner profile
 
