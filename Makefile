@@ -318,9 +318,25 @@ compile-commands:  ## Generate compile_commands.json (for clangd/IDE) and symlin
 	@ln -sf "build/$(or $(PRESET),dev)/compile_commands.json" compile_commands.json
 	@echo "==> compile_commands.json -> build/$(or $(PRESET),dev)/compile_commands.json"
 
-build-local:       ## Build native binaries via the `dev` preset (no Docker)
+# Native build parallelism, bounded by RAM: the heavy integration TUs peak
+# ~1.5-2 GiB of cc1plus each, and a bare `-j` lets ninja default to cores+2 —
+# which OOM-kills the compiler on an 8 GiB VM/devcontainer (`c++: fatal error:
+# Killed signal terminated program cc1plus`, measured at 6 jobs x ~1.4 GiB).
+# One job per ~2 GiB of total RAM, capped at CPU count, floor 1. Override:
+# `make build-local JOBS=8`.
+JOBS ?= $(shell \
+	if [ "$$(uname -s)" = Darwin ]; then \
+		mem=$$(sysctl -n hw.memsize 2>/dev/null); cpus=$$(sysctl -n hw.ncpu 2>/dev/null); \
+	else \
+		mem=$$(( $$(awk '/MemTotal/{print $$2}' /proc/meminfo 2>/dev/null || echo 0) * 1024 )); cpus=$$(nproc 2>/dev/null); \
+	fi; \
+	: $${mem:=0} $${cpus:=2}; jobs=$$(( mem / 2147483648 )); \
+	[ "$$jobs" -lt 1 ] && jobs=1; [ "$$jobs" -gt "$$cpus" ] && jobs=$$cpus; \
+	echo $$jobs)
+
+build-local:       ## Build native binaries via the `dev` preset (no Docker; JOBS=n overrides the RAM-bounded default)
 	@$(MAKE) --no-print-directory compile-commands PRESET=$(or $(PRESET),dev)
-	cmake --build --preset $(or $(PRESET),dev) -j
+	cmake --build --preset $(or $(PRESET),dev) -j $(JOBS)
 
 test-local:        ## Run native gtest binary; pass NAME=<filter> to scope: make test-local NAME=Pagination*
 	@$(MAKE) --no-print-directory build-local PRESET=$(or $(PRESET),dev)
@@ -368,7 +384,7 @@ watch:             ## Rebuild + restart on src/ change (needs entr or watchexec)
 coverage:          ## Build with coverage, run tests, emit HTML + fail under COVERAGE_MIN% line coverage
 	@command -v gcovr >/dev/null 2>&1 || { echo "gcovr missing — pip install gcovr"; exit 1; }
 	cmake --preset coverage
-	cmake --build --preset coverage -j
+	cmake --build --preset coverage -j $(JOBS)
 	@# Run EVERY bucket, not just unit — otherwise the report counts only the
 	@# unit-reachable code and badly understates the DB / cache / auth / jobs
 	@# paths that ONLY the integration + e2e buckets exercise. integration/e2e
