@@ -28,6 +28,14 @@
       }
     },
     {
+      "name": "devcontainer",
+      "displayName": "Debug build in the prebuilt-builder dev container (.devcontainer)",
+      "inherits": "dev",
+      "cacheVariables": {
+        "VCPKG_INSTALLED_DIR": "/app/build/vcpkg_installed"
+      }
+    },
+    {
       "name": "dev-asan",
       "displayName": "Debug + AddressSanitizer + UBSan",
       "inherits": "base",
@@ -66,6 +74,10 @@
     {
       "name": "dev",
       "configurePreset": "dev"
+    },
+    {
+      "name": "devcontainer",
+      "configurePreset": "devcontainer"
     },
     {
       "name": "dev-asan",

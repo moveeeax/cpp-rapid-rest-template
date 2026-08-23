@@ -21,7 +21,7 @@ question instead of grepping the tree.
 | [`EXAMPLES.md`](EXAMPLES.md) | End-to-end CRUD walkthrough for adding your own resource: migration → DTO → repository → controller → tests |
 | [`CONVENTIONS.md`](CONVENTIONS.md) | Canonical "add a domain entity" checklist (what `new-resource.sh` follows) + what NOT to abstract |
 | [`CONFIG.md`](CONFIG.md) | Single table mapping every JSON key ↔ env var ↔ default |
-| [`TESTING.md`](TESTING.md) | Test buckets (unit/integration/api/e2e), what's covered vs not, coverage, the disabled-race note |
+| [`TESTING.md`](TESTING.md) | Test buckets (unit/integration/api/e2e), day-to-day loops incl. the `.devcontainer` zero-setup inner loop, coverage, the disabled-race note |
 | [`ORGS.md`](ORGS.md) | Multi-tenancy starter kit (`scripts/add-orgs.sh`): two role layers, fail-closed org context, claim/switch semantics, deny-by-default matrix |
 | [`UPSTREAM.md`](UPSTREAM.md) | Fork↔template sync: `scripts/sync-upstream.sh` (three-way tarball patching for degit forks, `.template-version` stamp), git merge for full-history forks, the backport-candidate discipline for giving generic fixes back |
 | [`BENCHMARKS.md`](BENCHMARKS.md) | How to measure latency/throughput/footprint (`make bench` + presets) + a results template |
