@@ -37,3 +37,28 @@ export type RoleDetailResponse = Schemas['RoleDetailResponse'];
 export type InviteResponse = Schemas['InviteResponse'];
 /** Generic { message } envelope (logout, delete, …). */
 export type MessageResponse = Schemas['MessageResponse'];
+
+/**
+ * Billing (wallet / PayPal top-up module). Two distinct integer units that
+ * must never be mixed: `amount_cents` fields are real-world USD cents;
+ * `credits` / `delta_credits` / `balance` are the internal wallet unit,
+ * NEVER divided by 100 — see frontend/src/lib/money.ts for the
+ * render-boundary conversion rules. credits_per_unit and the min/max bounds
+ * come back on the SAME GET /billing/packages response as the package list
+ * (BillingPackageListResponse).
+ */
+export type BillingPackage = Schemas['BillingPackage'];
+export type BillingPackageListResponse = Schemas['BillingPackageListResponse'];
+export type PublicWalletEntry = Schemas['PublicWalletEntry'];
+export type WalletResponse = Schemas['WalletResponse'];
+export type TopupResponse = Schemas['TopupResponse'];
+export type CaptureResponse = Schemas['CaptureResponse'];
+
+/** Admin billing: packages CRUD, payments list, rate/bounds settings, manual adjustments. */
+export type Payment = Schemas['Payment'];
+export type AdminPackageResponse = Schemas['AdminPackageResponse'];
+export type AdminPackageListResponse = Schemas['AdminPackageListResponse'];
+export type AdminPaymentListResponse = Schemas['AdminPaymentListResponse'];
+export type BillingSettings = Schemas['BillingSettings'];
+export type BillingSettingsResponse = Schemas['BillingSettingsResponse'];
+export type AdjustResponse = Schemas['AdjustResponse'];

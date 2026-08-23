@@ -17,6 +17,9 @@ import { ChangeEmailPage } from '@/pages/ChangeEmail';
 import { RequestResetPage } from '@/pages/RequestReset';
 import { ResetPasswordPage } from '@/pages/ResetPassword';
 import { JoinFromInvitePage } from '@/pages/JoinFromInvite';
+import { BillingPage } from '@/pages/Billing';
+import { BillingReturnPage } from '@/pages/BillingReturn';
+import { BillingCancelPage } from '@/pages/BillingCancel';
 
 // Admin pages are code-split: a logged-out visitor on /login should not pull
 // the whole admin bundle. React.lazy needs a module with a `default` export,
@@ -49,6 +52,9 @@ const AdminPostsPage = lazy(() =>
 );
 const AdminMediaPage = lazy(() =>
   import('@/pages/admin/Media').then((m) => ({ default: m.AdminMediaPage })),
+);
+const AdminBillingPage = lazy(() =>
+  import('@/pages/admin/Billing').then((m) => ({ default: m.AdminBillingPage })),
 );
 
 /**
@@ -123,6 +129,15 @@ export const routes: RouteEntry[] = [
   { path: '/account', element: <ProfilePage />, guard: 'confirmed' },
   { path: '/account/change-password', element: <ChangePasswordPage />, guard: 'confirmed' },
   { path: '/account/change-email', element: <ChangeEmailPage />, guard: 'confirmed' },
+  // Billing (wallet / PayPal top-up). No navLabel — the wallet-balance
+  // indicator in Nav's account cluster is the entry point (it only renders
+  // when GET /billing/wallet succeeds, i.e. when the billing module is
+  // enabled on the backend, so a disabled module leaves zero dangling UI).
+  // /billing/return and /billing/cancel are PayPal's redirect targets
+  // (billing.paypal.return_url / cancel_url, docs/CONFIG.md).
+  { path: '/billing', element: <BillingPage />, guard: 'confirmed' },
+  { path: '/billing/return', element: <BillingReturnPage />, guard: 'confirmed' },
+  { path: '/billing/cancel', element: <BillingCancelPage />, guard: 'confirmed' },
 
   // ── Admin — gated by Permission.Administer (0x40000000 sentinel) ────────
   {
@@ -153,6 +168,9 @@ export const routes: RouteEntry[] = [
   },
   { path: '/admin/posts', element: <AdminPostsPage />, guard: 'admin' },
   { path: '/admin/media', element: <AdminMediaPage />, guard: 'admin' },
+  // No navLabel — tiles-only like Posts/Media (the /admin dashboard tile is
+  // the entry point, not the top nav).
+  { path: '/admin/billing', element: <AdminBillingPage />, guard: 'admin' },
 ];
 
 /** The permission a guard implies, for nav-link filtering in Nav.tsx. */
