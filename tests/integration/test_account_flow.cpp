@@ -25,6 +25,7 @@
 #include "repositories/RoleRepository.hpp"
 #include "repositories/UserRepository.hpp"
 #include "security/Auth.hpp"
+#include "security/Password.hpp"
 #include "security/Tokens.hpp"
 #include "test_helpers.hpp"
 

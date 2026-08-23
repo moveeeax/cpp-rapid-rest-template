@@ -7,6 +7,8 @@
  * Suite name RateLimitRedisTest → integration bucket (needs Redis).
  */
 
+#include <iterator>
+
 #include <gtest/gtest.h>
 
 #include "cache/Cache.hpp"

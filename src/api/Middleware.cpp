@@ -22,9 +22,11 @@
 
 #include <drogon/drogon.h>
 #include <opentelemetry/context/runtime_context.h>
+#include <opentelemetry/nostd/span.h>
 #include <opentelemetry/trace/context.h>
 #include <opentelemetry/trace/scope.h>
 #include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
 #include <spdlog/spdlog.h>
 
 #include "api/RequestUtils.hpp"
