@@ -33,6 +33,7 @@
 #include "api/Api.hpp"
 #include "core/Core.hpp"
 #include "domain/Role.hpp"
+#include "openapi_check.hpp"
 #include "security/Auth.hpp"
 #include "security/Jwt.hpp"
 #include "test_helpers.hpp"
@@ -164,6 +165,18 @@ json body_of(const HttpResponsePtr& resp) {
     return json::parse(std::string(resp->getBody()));
 }
 
+/**
+ * Validate a real response body against the schema docs/openapi.yaml declares
+ * for (method, spec path template, ACTUAL status). Thin adapter over
+ * OpenApiCheck::expect_matches_schema — see tests/e2e/openapi_check.hpp for
+ * the supported schema subset and the explicit-SKIP discipline.
+ */
+void expect_matches_schema(const HttpResponsePtr& resp, const std::string& method, const std::string& spec_path) {
+    ASSERT_NE(resp, nullptr);
+    OpenApiCheck::expect_matches_schema(
+        std::string(resp->getBody()), method, spec_path, static_cast<int>(resp->statusCode()));
+}
+
 struct SessionCookies {
     std::string access;
     std::string refresh;
@@ -191,14 +204,23 @@ void attach_session(const HttpRequestPtr& req, const SessionCookies& sc) {
 SessionCookies register_and_login(const std::string& email, const std::string& password) {
     auto reg = send(json_post("/api/v1/auth/register", {{"email", email}, {"password", password}}));
     EXPECT_EQ(reg->statusCode(), k201Created) << reg->getBody();
+    expect_matches_schema(reg, "POST", "/api/v1/auth/register");
     auto login = send(json_post("/api/v1/auth/login", {{"email", email}, {"password", password}}));
     EXPECT_EQ(login->statusCode(), k200OK) << login->getBody();
+    expect_matches_schema(login, "POST", "/api/v1/auth/login");
     return cookies_of(login);
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// Deliberately NOT gated on REQUIRE_E2E_ENV: this is the drift gate between
+// docs/openapi.yaml and the committed tests/e2e/openapi.gen.json the schema
+// checks below consume — it must fail even on a machine without the sidecars.
+TEST(OpenApiSpec, GenJsonIsFreshAndLoadable) {
+    OpenApiCheck::expect_spec_json_fresh();
+}
 
 TEST(HttpE2E, HealthzCarriesRequestIdHeader) {
     REQUIRE_E2E_ENV();
@@ -207,6 +229,7 @@ TEST(HttpE2E, HealthzCarriesRequestIdHeader) {
     auto resp = send(req);
     EXPECT_EQ(resp->statusCode(), k200OK);
     EXPECT_EQ(body_of(resp)["status"], "alive");
+    expect_matches_schema(resp, "GET", "/healthz");
     // Tracing middleware must stamp every response.
     EXPECT_FALSE(resp->getHeader("x-request-id").empty());
 }
@@ -241,6 +264,7 @@ TEST(HttpE2E, NonJsonContentTypeRejectedWith415) {
     req->setContentTypeCode(CT_TEXT_PLAIN);
     auto resp = send(req);
     EXPECT_EQ(resp->statusCode(), k415UnsupportedMediaType);
+    expect_matches_schema(resp, "POST", "/api/v1/auth/login");
     // Short-circuited responses (sync advices skip the whole post-handling
     // chain) must still carry the observability + security headers —
     // middleware::short_circuit replays them. Before it existed, a 415/401/429
@@ -261,6 +285,8 @@ TEST(HttpE2E, ContentTypeComparisonIsCaseInsensitive) {
     req->setContentTypeString("Application/JSON; charset=UTF-8");
     auto resp = send(req);
     EXPECT_NE(resp->statusCode(), k415UnsupportedMediaType);
+    // Junk-credential path — validates the 401 error body against the spec.
+    expect_matches_schema(resp, "POST", "/api/v1/auth/login");
 }
 
 TEST(HttpE2E, MultipartPassesContentTypeGate) {
@@ -277,6 +303,7 @@ TEST(HttpE2E, MultipartPassesContentTypeGate) {
     req->setContentTypeString("multipart/form-data; boundary=x");
     auto resp = send(req);
     EXPECT_EQ(resp->statusCode(), k401Unauthorized) << resp->getBody();
+    expect_matches_schema(resp, "POST", "/api/v1/admin/uploads");
 }
 
 TEST(HttpE2E, AuthMiddlewareGuardsNonPublicPaths) {
@@ -285,6 +312,7 @@ TEST(HttpE2E, AuthMiddlewareGuardsNonPublicPaths) {
     req->setPath("/api/v1/jobs");  // not in api.public_paths
     auto resp = send(req);
     EXPECT_EQ(resp->statusCode(), k401Unauthorized);
+    expect_matches_schema(resp, "GET", "/api/v1/jobs");
     EXPECT_FALSE(resp->getHeader("www-authenticate").empty());
     // The auth advice short-circuits before any pre/post advice — the reply
     // must still be observable and hardened (see middleware::short_circuit).
@@ -307,6 +335,7 @@ TEST(HttpE2E, AccountTokenRoutesArePublic) {
     auto resp = send(req);
     EXPECT_EQ(resp->statusCode(), k400BadRequest) << resp->getBody();
     EXPECT_EQ(body_of(resp)["error"], "invalid_token");
+    expect_matches_schema(resp, "POST", "/api/v1/account/reset-password/{token}");
 }
 
 TEST(HttpE2E, RegisterLoginMeRoundtripOverWire) {
@@ -321,6 +350,7 @@ TEST(HttpE2E, RegisterLoginMeRoundtripOverWire) {
     auto resp = send(me);
     ASSERT_EQ(resp->statusCode(), k200OK) << resp->getBody();
     EXPECT_EQ(body_of(resp)["user"]["email"], "e2e-alice@example.com");
+    expect_matches_schema(resp, "GET", "/api/v1/auth/me");
 }
 
 TEST(HttpE2E, RefreshRotatesSession) {
@@ -333,6 +363,7 @@ TEST(HttpE2E, RefreshRotatesSession) {
     attach_session(refresh, sc);
     auto resp = send(refresh);
     ASSERT_EQ(resp->statusCode(), k200OK) << resp->getBody();
+    expect_matches_schema(resp, "POST", "/api/v1/auth/refresh");
 
     auto rotated = cookies_of(resp);
     EXPECT_FALSE(rotated.refresh.empty());
@@ -347,14 +378,18 @@ TEST(HttpE2E, LogoutRevokesRefreshToken) {
     logout->setMethod(Post);
     logout->setPath("/api/v1/auth/logout");
     attach_session(logout, sc);
-    ASSERT_EQ(send(logout)->statusCode(), k200OK);
+    auto logout_resp = send(logout);
+    ASSERT_EQ(logout_resp->statusCode(), k200OK);
+    expect_matches_schema(logout_resp, "POST", "/api/v1/auth/logout");
 
     // The old refresh JTI is revoked in Redis — rotation must now fail.
     auto refresh = HttpRequest::newHttpRequest();
     refresh->setMethod(Post);
     refresh->setPath("/api/v1/auth/refresh");
     attach_session(refresh, sc);
-    EXPECT_EQ(send(refresh)->statusCode(), k401Unauthorized);
+    auto denied = send(refresh);
+    EXPECT_EQ(denied->statusCode(), k401Unauthorized);
+    expect_matches_schema(denied, "POST", "/api/v1/auth/refresh");
 }
 
 TEST(HttpE2E, IdempotencyKeyReplaysResponse) {
@@ -365,6 +400,7 @@ TEST(HttpE2E, IdempotencyKeyReplaysResponse) {
     first->addHeader("Idempotency-Key", "e2e-key-001");
     auto r1 = send(first);
     ASSERT_EQ(r1->statusCode(), k201Created) << r1->getBody();
+    expect_matches_schema(r1, "POST", "/api/v1/auth/register");
 
     // Identical retry: without the middleware this would be 409 email_taken;
     // with it, the cached 201 is replayed.
@@ -373,12 +409,17 @@ TEST(HttpE2E, IdempotencyKeyReplaysResponse) {
     auto r2 = send(second);
     EXPECT_EQ(r2->statusCode(), k201Created) << r2->getBody();
     EXPECT_EQ(r2->getHeader("x-idempotent-replayed"), "true");
+    // The replayed body must STILL match the spec — a cached response is a
+    // response.
+    expect_matches_schema(r2, "POST", "/api/v1/auth/register");
 
     // Same key + DIFFERENT body → 422 conflict.
     auto third =
         json_post("/api/v1/auth/register", {{"email", "e2e-other@example.com"}, {"password", "password-e2e-1"}});
     third->addHeader("Idempotency-Key", "e2e-key-001");
-    EXPECT_EQ(send(third)->statusCode(), k422UnprocessableEntity);
+    auto r3 = send(third);
+    EXPECT_EQ(r3->statusCode(), k422UnprocessableEntity);
+    expect_matches_schema(r3, "POST", "/api/v1/auth/register");
 }
 
 TEST(HttpE2E, AdminGateChecksPermissionBitmask) {
@@ -394,12 +435,16 @@ TEST(HttpE2E, AdminGateChecksPermissionBitmask) {
     auto as_admin = HttpRequest::newHttpRequest();
     as_admin->setPath("/api/v1/admin/users");
     as_admin->addHeader("Authorization", "Bearer " + admin_jwt);
-    EXPECT_EQ(send(as_admin)->statusCode(), k200OK);
+    auto admin_resp = send(as_admin);
+    EXPECT_EQ(admin_resp->statusCode(), k200OK);
+    expect_matches_schema(admin_resp, "GET", "/api/v1/admin/users");
 
     auto as_user = HttpRequest::newHttpRequest();
     as_user->setPath("/api/v1/admin/users");
     as_user->addHeader("Authorization", "Bearer " + user_jwt);
-    EXPECT_EQ(send(as_user)->statusCode(), k403Forbidden);
+    auto user_resp = send(as_user);
+    EXPECT_EQ(user_resp->statusCode(), k403Forbidden);
+    expect_matches_schema(user_resp, "GET", "/api/v1/admin/users");
 }
 
 TEST(HttpE2E, PostMarkdownServedOverWire) {
@@ -419,6 +464,7 @@ TEST(HttpE2E, PostMarkdownServedOverWire) {
     create->addHeader("Authorization", "Bearer " + admin_jwt);
     auto create_resp = send(create);
     ASSERT_EQ(create_resp->statusCode(), k201Created) << create_resp->getBody();
+    expect_matches_schema(create_resp, "POST", "/api/v1/posts");
 
     auto req = HttpRequest::newHttpRequest();
     req->setPath("/posts/e2e-markdown-post");
@@ -443,7 +489,9 @@ TEST(HttpE2E, SitemapListsPublishedPost) {
         "/api/v1/posts",
         {{"slug", "e2e-sitemap-post"}, {"title", "E2E Sitemap Post"}, {"body", "Body."}, {"status", "published"}});
     create->addHeader("Authorization", "Bearer " + admin_jwt);
-    ASSERT_EQ(send(create)->statusCode(), k201Created);
+    auto create_resp = send(create);
+    ASSERT_EQ(create_resp->statusCode(), k201Created);
+    expect_matches_schema(create_resp, "POST", "/api/v1/posts");
 
     auto req = HttpRequest::newHttpRequest();
     req->setPath("/sitemap.xml");
