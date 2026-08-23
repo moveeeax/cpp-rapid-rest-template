@@ -198,6 +198,9 @@
     "dlq_metric_refresh_sec": "${JOBS_DLQ_METRIC_REFRESH_SEC:-10}",
     "queue_metric_refresh_sec": "${JOBS_QUEUE_METRIC_REFRESH_SEC:-10}"
   },
+  "outbox": {
+    "drain_interval_sec": "${OUTBOX_DRAIN_INTERVAL_SEC:-0}"
+  },
   "content": {
     "enabled": "${CONTENT_ENABLED:-false}"
   },

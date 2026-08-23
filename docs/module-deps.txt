@@ -59,6 +59,7 @@ email -> repositories
 email -> security
 email -> utils
 jobs -> cache
+jobs -> database
 jobs -> email
 jobs -> observability
 jobs -> utils

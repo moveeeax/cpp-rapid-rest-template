@@ -152,6 +152,12 @@ private:
     // so without a reaper the table + its index grow monotonically.
     static void register_token_reaper_();
 
+    // Schedules the transactional-outbox drain (Jobs::Outbox::drain) every
+    // outbox.drain_interval_sec seconds. Opt-in: the default 0 schedules
+    // nothing, so the outbox table sits inert unless a deploy turns it on.
+    // Server-mode only (Tasks isn't initialized in the worker).
+    static void register_outbox_drain_(Config::AppConfig& cfg);
+
     // Registers the subsystem probes the template ships with. Services
     // that add their own modules can call Core::get().register_health_check
     // at any point after Core::initialize() returns.
