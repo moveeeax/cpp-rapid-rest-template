@@ -3,6 +3,13 @@
  * @brief Cache module for Redis integration
  * @details Provides Redis operations with Sentinel support for high availability
  *          using redis-plus-plus library
+ *
+ * Non-template bodies (URL/sentinel parsing, client construction, the
+ * CacheManager wrappers and the global-instance lifecycle incl. the test
+ * seam) live in Cache.cpp (compiled once into app_core; ADR 0003 as amended
+ * 2026-08-22). The guarded_ member template and the cached<T> read-through
+ * helper are templates and stay here — the spdlog / redis++ /
+ * nlohmann-json includes are load-bearing for their bodies.
  */
 
 #pragma once
@@ -10,16 +17,14 @@
 #include <chrono>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <spdlog/spdlog.h>
 #include <sw/redis++/redis++.h>
 
 #include <nlohmann/json.hpp>
-
-#include "utils/Strings.hpp"
 
 namespace Cache {
 
@@ -37,107 +42,37 @@ struct RedisAddress {
  *        client so the parsing (and its error handling) lives in one place.
  * @throws std::runtime_error on a malformed port.
  */
-inline RedisAddress parse_redis_url(const std::string& url) {
-    RedisAddress out;
-    std::string addr = url;
-    if (addr.starts_with("tcp://"))
-        addr = addr.substr(6);
-    auto colon = addr.find(':');
-    if (colon == std::string::npos) {
-        if (!addr.empty())
-            out.host = addr;
-        return out;
-    }
-    out.host = addr.substr(0, colon);
-    const std::string port_str = addr.substr(colon + 1);
-    try {
-        out.port = std::stoi(port_str);
-    } catch (const std::exception&) {
-        throw std::runtime_error("Invalid Redis port in connection string: '" + port_str + "'");
-    }
-    return out;
-}
+RedisAddress parse_redis_url(const std::string& url);
 
 /**
  * @brief Parse a "host:port,host:port" Sentinel node list. Entries without
  *        a valid port are skipped with a warning rather than aborting boot.
  */
-inline std::vector<std::pair<std::string, int>> parse_sentinel_nodes_csv(const std::string& csv) {
-    std::vector<std::pair<std::string, int>> out;
-    for (const auto& node : Utils::Strings::split_csv_vec(csv)) {
-        auto colon = node.find(':');
-        if (colon == std::string::npos) {
-            spdlog::warn("Sentinel node '{}' has no port — skipping", node);
-            continue;
-        }
-        try {
-            out.emplace_back(node.substr(0, colon), std::stoi(node.substr(colon + 1)));
-        } catch (const std::exception&) {
-            spdlog::warn("Sentinel node '{}' has an invalid port — skipping", node);
-        }
-    }
-    return out;
-}
+std::vector<std::pair<std::string, int>> parse_sentinel_nodes_csv(const std::string& csv);
 
 /**
  * @brief Build a standalone Redis client. Shared between Cache and the
  *        Jobs blocking-BRPOP client so connection params live in one place.
  */
-inline std::unique_ptr<Redis> make_standalone_client(const std::string& host,
-                                                     int port,
-                                                     size_t pool_size,
-                                                     const std::string& password,
-                                                     std::chrono::milliseconds socket_timeout,
-                                                     std::chrono::milliseconds pool_wait_timeout,
-                                                     int db = 0) {
-    ConnectionOptions opts;
-    opts.host = host;
-    opts.port = port;
-    opts.db = db;
-    opts.socket_timeout = socket_timeout;
-    if (!password.empty())
-        opts.password = password;
-    ConnectionPoolOptions pool_opts;
-    pool_opts.size = pool_size;
-    pool_opts.wait_timeout = pool_wait_timeout;
-    return std::make_unique<Redis>(opts, pool_opts);
-}
+std::unique_ptr<Redis> make_standalone_client(const std::string& host,
+                                              int port,
+                                              size_t pool_size,
+                                              const std::string& password,
+                                              std::chrono::milliseconds socket_timeout,
+                                              std::chrono::milliseconds pool_wait_timeout,
+                                              int db = 0);
 
 /**
  * @brief Build a Sentinel-aware Redis client. Shared between Cache and Jobs.
  */
-inline std::unique_ptr<Redis> make_sentinel_client(const std::string& master_name,
-                                                   const std::vector<std::pair<std::string, int>>& sentinels,
-                                                   size_t pool_size,
-                                                   const std::string& password,
-                                                   const std::string& sentinel_password,
-                                                   std::chrono::milliseconds socket_timeout,
-                                                   std::chrono::milliseconds pool_wait_timeout,
-                                                   int db = 0) {
-    const std::string effective_sentinel_pw = sentinel_password.empty() ? password : sentinel_password;
-    SentinelOptions sentinel_opts;
-    for (const auto& [host, port] : sentinels) {
-        sentinel_opts.nodes.push_back({host, port});
-    }
-    sentinel_opts.connect_timeout = 200ms;
-    sentinel_opts.socket_timeout = 200ms;
-    if (!effective_sentinel_pw.empty())
-        sentinel_opts.password = effective_sentinel_pw;
-
-    ConnectionOptions conn_opts;
-    conn_opts.connect_timeout = 200ms;
-    conn_opts.socket_timeout = socket_timeout;
-    conn_opts.db = db;
-    if (!password.empty())
-        conn_opts.password = password;
-
-    ConnectionPoolOptions pool_opts;
-    pool_opts.size = pool_size;
-    pool_opts.wait_timeout = pool_wait_timeout;
-
-    auto sentinel = std::make_shared<Sentinel>(sentinel_opts);
-    return std::make_unique<Redis>(sentinel, master_name, Role::MASTER, conn_opts, pool_opts);
-}
+std::unique_ptr<Redis> make_sentinel_client(const std::string& master_name,
+                                            const std::vector<std::pair<std::string, int>>& sentinels,
+                                            size_t pool_size,
+                                            const std::string& password,
+                                            const std::string& sentinel_password,
+                                            std::chrono::milliseconds socket_timeout,
+                                            std::chrono::milliseconds pool_wait_timeout,
+                                            int db = 0);
 
 /**
  * @brief Redis cache manager with Sentinel support
@@ -173,22 +108,7 @@ public:
                     const std::string& password = "",
                     std::chrono::milliseconds socket_timeout = 500ms,
                     std::chrono::milliseconds pool_wait_timeout = 500ms,
-                    int db = 0) {
-        if (initialized) {
-            throw std::runtime_error("Cache already initialized");
-        }
-        try {
-            const RedisAddress addr = parse_redis_url(connection_str);
-            redis_client = make_standalone_client(
-                addr.host, addr.port, pool_size, password, socket_timeout, pool_wait_timeout, db);
-            redis_client->ping();
-            initialized = true;
-            spdlog::info("Redis cache initialized (standalone: {}:{}, db={})", addr.host, addr.port, db);
-        } catch (const Error& e) {
-            spdlog::error("Failed to initialize Redis cache: {}", e.what());
-            throw std::runtime_error("Redis initialization failed: " + std::string(e.what()));
-        }
-    }
+                    int db = 0);
 
     /**
      * @brief Initialize Redis with Sentinel for high availability
@@ -203,36 +123,9 @@ public:
                                   const std::string& sentinel_password = "",
                                   std::chrono::milliseconds socket_timeout = 500ms,
                                   std::chrono::milliseconds pool_wait_timeout = 500ms,
-                                  int db = 0) {
-        if (initialized) {
-            throw std::runtime_error("Cache already initialized");
-        }
-        try {
-            redis_client = make_sentinel_client(
-                master_name, sentinels, pool_size, password, sentinel_password, socket_timeout, pool_wait_timeout, db);
-            redis_client->ping();
-            initialized = true;
-            spdlog::info("Redis cache initialized with Sentinel (master: {}, db={})", master_name, db);
-        } catch (const Error& e) {
-            spdlog::error("Failed to initialize Redis with Sentinel: {}", e.what());
-            throw std::runtime_error("Redis Sentinel initialization failed: " + std::string(e.what()));
-        }
-    }
+                                  int db = 0);
 
-    virtual bool set(const std::string& key, const std::string& value, long ttl = 0) {
-        return guarded_(
-            false,
-            [&] {
-                if (ttl > 0) {
-                    redis_client->setex(key, ttl, value);
-                } else {
-                    redis_client->set(key, value);
-                }
-                return true;
-            },
-            "Failed to set key '{}': {}",
-            key);
-    }
+    virtual bool set(const std::string& key, const std::string& value, long ttl = 0);
 
     /**
      * @brief Atomic SET-if-not-exists with TTL — used as a lightweight
@@ -241,139 +134,45 @@ public:
      *        On Redis error returns false (treat as "lock not acquired"
      *        to avoid double-processing during outages).
      */
-    virtual bool set_nx(const std::string& key, const std::string& value, std::chrono::milliseconds ttl) {
-        return guarded_(
-            false,
-            [&] { return redis_client->set(key, value, ttl, sw::redis::UpdateType::NOT_EXIST); },
-            "Failed to SET NX key '{}': {}",
-            key);
-    }
+    virtual bool set_nx(const std::string& key, const std::string& value, std::chrono::milliseconds ttl);
 
-    virtual std::optional<std::string> get(const std::string& key) {
-        return guarded_(
-            std::optional<std::string>{},
-            [&]() -> std::optional<std::string> {
-                auto val = redis_client->get(key);
-                if (val) {
-                    return *val;
-                }
-                return std::nullopt;
-            },
-            "Failed to get key '{}': {}",
-            key);
-    }
+    virtual std::optional<std::string> get(const std::string& key);
 
-    virtual long del(const std::string& key) {
-        return guarded_(
-            0L, [&] { return redis_client->del(key); }, "Failed to delete key '{}': {}", key);
-    }
+    virtual long del(const std::string& key);
 
-    virtual long del(const std::vector<std::string>& keys) {
-        return guarded_(
-            0L, [&] { return redis_client->del(keys.begin(), keys.end()); }, "Failed to delete multiple keys: {}");
-    }
+    virtual long del(const std::vector<std::string>& keys);
 
-    virtual bool exists(const std::string& key) {
-        return guarded_(
-            false, [&] { return redis_client->exists(key) > 0; }, "Failed to check existence of key '{}': {}", key);
-    }
+    virtual bool exists(const std::string& key);
 
-    virtual bool expire(const std::string& key, long seconds) {
-        return guarded_(
-            false, [&] { return redis_client->expire(key, seconds); }, "Failed to set expiration on key '{}': {}", key);
-    }
+    virtual bool expire(const std::string& key, long seconds);
 
-    virtual long ttl(const std::string& key) {
-        return guarded_(
-            -2L, [&] { return redis_client->ttl(key); }, "Failed to get TTL for key '{}': {}", key);
-    }
+    virtual long ttl(const std::string& key);
 
     // NOT fail-open (see class contract): counters silently stuck at a
     // default would corrupt rate accounting, so incr/decr log and RETHROW.
     // INCRBY key 1 is exactly INCR key, so a single command suffices.
-    virtual long long incr(const std::string& key, long long increment = 1) {
-        check_initialized();
-        try {
-            return redis_client->incrby(key, increment);
-        } catch (const Error& e) {
-            spdlog::error("Failed to increment key '{}': {}", key, e.what());
-            throw;
-        }
-    }
+    virtual long long incr(const std::string& key, long long increment = 1);
 
-    virtual long long decr(const std::string& key, long long decrement = 1) {
-        check_initialized();
-        try {
-            return redis_client->decrby(key, decrement);
-        } catch (const Error& e) {
-            spdlog::error("Failed to decrement key '{}': {}", key, e.what());
-            throw;
-        }
-    }
+    virtual long long decr(const std::string& key, long long decrement = 1);
 
-    long sadd(const std::string& key, const std::string& member) {
-        return guarded_(
-            0L, [&] { return redis_client->sadd(key, member); }, "Failed to add to set '{}': {}", key);
-    }
+    long sadd(const std::string& key, const std::string& member);
 
-    std::vector<std::string> smembers(const std::string& key) {
-        return guarded_(
-            std::vector<std::string>{},
-            [&] {
-                std::vector<std::string> members;
-                redis_client->smembers(key, std::back_inserter(members));
-                return members;
-            },
-            "Failed to get members of set '{}': {}",
-            key);
-    }
+    std::vector<std::string> smembers(const std::string& key);
 
-    long zadd(const std::string& key, const std::string& member, double score) {
-        return guarded_(
-            0L, [&] { return redis_client->zadd(key, member, score); }, "Failed to add to sorted set '{}': {}", key);
-    }
+    long zadd(const std::string& key, const std::string& member, double score);
 
-    long long publish(const std::string& channel, const std::string& message) {
-        return guarded_(
-            0LL,
-            [&] { return redis_client->publish(channel, message); },
-            "Failed to publish to channel '{}': {}",
-            channel);
-    }
+    long long publish(const std::string& channel, const std::string& message);
 
-    bool health_check() {
-        if (!initialized)
-            return false;
-        try {
-            redis_client->ping();
-            return true;
-        } catch (const Error& e) {
-            spdlog::error("Cache health check failed: {}", e.what());
-            return false;
-        }
-    }
+    bool health_check();
 
-    void shutdown() {
-        if (initialized) {
-            spdlog::info("Shutting down cache manager");
-            redis_client.reset();
-            initialized = false;
-        }
-    }
+    void shutdown();
 
     virtual bool is_initialized() const { return initialized; }
 
-    Redis& get_client() {
-        check_initialized();
-        return *redis_client;
-    }
+    Redis& get_client();
 
 private:
-    void check_initialized() const {
-        if (!initialized) {
-            throw std::runtime_error("Cache not initialized");
-        }
-    }
+    void check_initialized() const;
 
     /**
      * @brief Shared body of the FAIL-OPEN wrappers above: require an
@@ -396,67 +195,36 @@ private:
 };
 
 /**
- * @brief Global cache instance
+ * @brief Initialize the global cache instance
  */
-inline std::unique_ptr<CacheManager> global_cache = nullptr;
+void initialize(const std::string& connection_str,
+                size_t pool_size = 10,
+                const std::string& password = "",
+                std::chrono::milliseconds socket_timeout = 500ms,
+                std::chrono::milliseconds pool_wait_timeout = 500ms,
+                int db = 0);
 
-inline void initialize(const std::string& connection_str,
-                       size_t pool_size = 10,
-                       const std::string& password = "",
-                       std::chrono::milliseconds socket_timeout = 500ms,
-                       std::chrono::milliseconds pool_wait_timeout = 500ms,
-                       int db = 0) {
-    if (global_cache != nullptr) {
-        throw std::runtime_error("Cache already initialized");
-    }
-    global_cache = std::make_unique<CacheManager>();
-    global_cache->initialize(connection_str, pool_size, password, socket_timeout, pool_wait_timeout, db);
-}
+void initialize_with_sentinel(const std::string& master_name,
+                              const std::vector<std::pair<std::string, int>>& sentinels,
+                              size_t pool_size = 10,
+                              const std::string& password = "",
+                              const std::string& sentinel_password = "",
+                              std::chrono::milliseconds socket_timeout = 500ms,
+                              std::chrono::milliseconds pool_wait_timeout = 500ms,
+                              int db = 0);
 
-inline void initialize_with_sentinel(const std::string& master_name,
-                                     const std::vector<std::pair<std::string, int>>& sentinels,
-                                     size_t pool_size = 10,
-                                     const std::string& password = "",
-                                     const std::string& sentinel_password = "",
-                                     std::chrono::milliseconds socket_timeout = 500ms,
-                                     std::chrono::milliseconds pool_wait_timeout = 500ms,
-                                     int db = 0) {
-    if (global_cache != nullptr) {
-        throw std::runtime_error("Cache already initialized");
-    }
-    global_cache = std::make_unique<CacheManager>();
-    global_cache->initialize_with_sentinel(
-        master_name, sentinels, pool_size, password, sentinel_password, socket_timeout, pool_wait_timeout, db);
-}
+CacheManager& get();
 
-inline CacheManager& get() {
-    if (global_cache == nullptr) {
-        throw std::runtime_error("Cache not initialized");
-    }
-    return *global_cache;
-}
+bool is_initialized();
 
-inline bool is_initialized() {
-    return global_cache != nullptr && global_cache->is_initialized();
-}
-
-inline void shutdown() {
-    if (global_cache) {
-        global_cache->shutdown();
-        global_cache.reset();
-    }
-}
+void shutdown();
 
 // ── Test seam ────────────────────────────────────────────────────────────────
 // Swap the global cache for a fake (CacheManager subclass, e.g.
 // tests/InMemoryCache.hpp) so cache-aside and fail-open paths are
 // unit-testable without a live Redis. Call reset_for_testing() in TearDown.
-inline void install_for_testing(std::unique_ptr<CacheManager> fake) {
-    global_cache = std::move(fake);
-}
-inline void reset_for_testing() {
-    global_cache.reset();
-}
+void install_for_testing(std::unique_ptr<CacheManager> fake);
+void reset_for_testing();
 
 // ── Read-through (cache-aside) helper ─────────────────────────────────────────
 // Return the cached value for `key`, or call `loader`, cache its result for

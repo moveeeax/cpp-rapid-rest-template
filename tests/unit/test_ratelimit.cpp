@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "cache/Cache.hpp"
 #include "security/RateLimit.hpp"
 
 namespace RL = Security::RateLimit;

@@ -34,6 +34,7 @@
 #include "core/Core.hpp"
 #include "domain/Role.hpp"
 #include "security/Auth.hpp"
+#include "security/Jwt.hpp"
 #include "test_helpers.hpp"
 
 using json = nlohmann::json;
