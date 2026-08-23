@@ -11,7 +11,7 @@ question instead of grepping the tree.
 | [`../README.md`](../README.md) | Getting started, what's in the box, quickstart, repo layout |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Pre-commit setup, dev workflow, commit-message convention, release flow |
 | [`../SECURITY.md`](../SECURITY.md) | Disclosure policy + production-hardening checklist |
-| [`../CHANGELOG.md`](../CHANGELOG.md) | Versioned change log (semver, edited under `## [Unreleased]`) |
+| [`../CHANGELOG.md`](../CHANGELOG.md) | Versioned change log (semver; authored via `changelog.d/` fragments — parallel-safe, see [`../changelog.d/README.md`](../changelog.d/README.md) — or directly under `## [Unreleased]`) |
 | [`../REMOVING-THE-DEMO.md`](../REMOVING-THE-DEMO.md) | What's reference-only (flask-base) vs the real app, and how to strip it (`init-project.sh --no-demo`) |
 
 ## Worked examples & deep-dives
@@ -104,7 +104,8 @@ question instead of grepping the tree.
 | `check-routes-registered.sh` | Verify every controller ADD_METHOD_TO route is in `Api::get_endpoints()` (symmetric to the OpenAPI drift check) |
 | `check-test-buckets.sh` | Verify test suites sit in the right bucket — classified by DIRECTORY, fails on a suite-name clash across unit/integration |
 | `check-version-sync.sh` | Verify `project(VERSION …)` in CMakeLists.txt, the 9 helm image-tag pins (`helm/cpp-env/values{,-demo,-stage}.yaml`) and the 4 `Chart.yaml` `appVersion` fields all match the newest released CHANGELOG heading (`[Unreleased]` on top stays green) |
-| `release.sh` | Bump every version point of a release in one command (CMakeLists + 9 helm tag pins + 4 appVersions) after the human retitles the CHANGELOG heading; verifies with check-version-sync.sh, commits nothing |
+| `release.sh` | One-command release: folds `changelog.d/` fragments into `[Unreleased]`, retitles it to `## [<ver>] — date` (accepts a hand-retitled heading too), bumps every version point (CMakeLists + 9 helm tag pins + 4 appVersions); verifies with check-version-sync.sh, commits nothing |
+| `assemble-changelog.sh` | Fold `changelog.d/<topic>.<type>.md` fragments into CHANGELOG's `[Unreleased]` (creates `###` sections in Keep-a-Changelog order, deletes consumed fragments); `--check` validates fragment format only — CI runs it, fragments themselves stay optional |
 | `check-frontend-nginx-sync.sh` | Verify `frontend/nginx.conf` and the helm cpp-frontend ConfigMap agree on the proxied backend routes |
 | `check-module-deps.sh` | Verify every cross-directory `#include` in `src/` is an edge declared in `docs/module-deps.txt`; hard-forbids `utils -> *`, non-entry-point includes of `core/Core.hpp`, and `webhooks -> email` |
 | `check-config-sync.sh` | Verify every config read in `src/` (`cfg.get<T>("path", "ENV", …)` + getenv) exists in `config/config.json` AND `config/config.sample.json` and is documented in `docs/CONFIG.md`; flags stale doc rows and stale helm env lines (exceptions: `docs/config-sync-allowlist.txt`) |
@@ -112,7 +113,7 @@ question instead of grepping the tree.
 | `check-artifact.py` | Content + leaked-template-syntax gate over ONE rendered artifact's extracted text (opt-in, for document-rendering forks — see docs/RENDER-GATE.md) |
 | `render-artifacts.sh` | Loop for the opt-in artifact gate: render every `templates/render/*/fixtures/*.json` via `RENDER_CMD`/`EXTRACT_CMD`, then gate with `check-artifact.py`; zero fixtures = failure |
 | `check-artifact-selftest.sh` | Mandatory selftest for the artifact gate: healthy example (incl. hostile data fixture) must PASS, two counted mutations must be caught and named |
-| `check-selftest.sh` | Prove all eight `check-*` gates bite: plant 18 known breakages in scratch copies, require each gate to fail AND name it (control-pass first, counted mutators, a no-op mutation is itself a failure; needs helm+yq) |
+| `check-selftest.sh` | Prove all nine gate scripts bite (the eight `check-*` gates + `assemble-changelog.sh --check`): plant 20 known breakages in scratch copies, require each gate to fail AND name it (control-pass first, counted mutators, a no-op mutation is itself a failure; needs helm+yq) |
 | `prod-check.sh` | Pre-deploy assertions on a production config (auth, secrets, TLS, fail-closed) |
 | `lint-openapi.sh` | Spectral lint with project ruleset |
 | `make-jwt.sh` | Mint a dev HS256 JWT (no Python/Node deps) |

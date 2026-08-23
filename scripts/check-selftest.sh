@@ -6,12 +6,13 @@
 # `exit 0`, and this template's own history has both failure modes on record:
 # check-test-buckets.sh read only its first directory argument (tests/api was
 # never scanned), and a downstream fork shipped a gitleaks config that scanned
-# with zero rules — green for months, checking nothing. So: for each of the eight
-# check scripts, copy the subtree it reads into a scratch dir, plant a known
+# with zero rules — green for months, checking nothing. So: for each of the nine
+# gate scripts, copy the subtree it reads into a scratch dir, plant a known
 # breakage, and require the gate to FAIL and to NAME what it found. Two planted
 # breakages per gate (five for check-version-sync.sh, which also guards the
-# helm image pins, Chart.yaml appVersions and the .template-version stamp),
-# nineteen in all.
+# helm image pins, Chart.yaml appVersions and the .template-version stamp; one
+# for assemble-changelog.sh --check, the changelog-fragment format gate),
+# twenty in all.
 #
 # Every case follows the same discipline (borrowed from the cyber-accountant
 # fork's check-render-selftest.sh, which learned it the expensive way):
@@ -104,7 +105,8 @@ digest_of() {
 
 # run_case <label> <gate-script> <mutator> <copy-paths> <needle>...
 #   label      — scratch-dir name and log tag
-#   gate       — script under scripts/ to run with REPO_ROOT=<copy>
+#   gate       — script under scripts/ to run with REPO_ROOT=<copy>; may carry
+#                arguments ("assemble-changelog.sh --check"), word-split below
 #   mutator    — shell function: takes the copy root, plants the breakage
 #   copy-paths — space-separated repo paths the gate reads (word-split on
 #                purpose; none of them contain spaces)
@@ -118,9 +120,13 @@ run_case() {
     # shellcheck disable=SC2086 # deliberate word-split of the path list
     copy_tree "$tree" $paths
 
+    local -a gate_cmd
+    read -r -a gate_cmd <<<"$gate"
+    gate_cmd[0]="$SCRIPT_DIR/${gate_cmd[0]}"
+
     local output status
     # Control: the untouched copy must PASS, or the case proves nothing.
-    output="$(REPO_ROOT="$tree" "$SCRIPT_DIR/$gate" 2>&1)"
+    output="$(REPO_ROOT="$tree" "${gate_cmd[@]}" 2>&1)"
     status=$?
     if [[ "$status" -ne 0 ]]; then
         echo "SELFTEST FAIL [$label]: $gate fails on a HEALTHY tree (exit $status)," >&2
@@ -153,7 +159,7 @@ run_case() {
         return
     fi
 
-    output="$(REPO_ROOT="$tree" "$SCRIPT_DIR/$gate" 2>&1)"
+    output="$(REPO_ROOT="$tree" "${gate_cmd[@]}" 2>&1)"
     status=$?
     if [[ "$status" -eq 0 ]]; then
         echo "SELFTEST FAIL [$label]: $gate PASSED the planted breakage:" >&2
@@ -177,7 +183,7 @@ run_case() {
     echo "SELFTEST OK   [$label]: $gate exit $status, named the planted breakage"
 }
 
-# --- the nineteen breakages --------------------------------------------------
+# --- the twenty breakages ----------------------------------------------------
 # Each mutator takes the copy root as $1, edits in place, and COUNTS. An
 # anchor that stops matching must fail the mutator loudly (see run_case), not
 # no-op — every anchor below is a real line in this repo today.
@@ -523,6 +529,27 @@ with open(path, "w", encoding="utf-8") as fh:
 PY
 }
 
+# 17. A changelog fragment whose type is not a keep-a-changelog section —
+#     assemble-changelog.sh --check must reject it BY NAME, or a typo'd
+#     fragment silently never reaches the CHANGELOG at release time. The
+#     mutator RENAMES the tracked README (renaming, not creating: the
+#     fingerprint only watches files that existed before the mutation, so a
+#     merely-added file would read as "mutator changed NOTHING").
+break_changelog_fragment_type() {
+    python3 - "$1" <<'PY'
+import os, sys
+root = sys.argv[1]
+src = os.path.join(root, "changelog.d/README.md")
+dst = os.path.join(root, "changelog.d/selftest-planted.badtype.md")
+if not os.path.isfile(src):
+    sys.exit("break_changelog_fragment_type: changelog.d/README.md is gone — "
+             "re-point the mutator at a file that exists")
+if os.path.exists(dst):
+    sys.exit("break_changelog_fragment_type: %s already exists" % dst)
+os.rename(src, dst)
+PY
+}
+
 # --- run them ----------------------------------------------------------------
 # Needles are LITERAL substrings of each gate's real diagnostics (grep -F).
 # When a gate's wording changes, the needle changes in the same PR — that is
@@ -614,6 +641,11 @@ run_case module-dep-core-hub check-module-deps.sh break_module_dep_core_hub \
     "src docs/module-deps.txt" \
     'forbidden include of the composition root: src/api/Guards.hpp includes "core/Core.hpp"' \
     'include "core/Modules.hpp"'
+
+run_case changelog-broken-fragment 'assemble-changelog.sh --check' break_changelog_fragment_type \
+    "changelog.d" \
+    'changelog.d/selftest-planted.badtype.md' \
+    "unknown type 'badtype'"
 
 CONFIG_SYNC_PATHS="src config/config.json config/config.sample.json docs/CONFIG.md docs/config-sync-allowlist.txt helm/cpp-api/templates/deployment.yaml helm/cpp-worker/templates/deployment.yaml"
 
