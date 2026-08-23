@@ -1,0 +1,1 @@
+`.devcontainer` runs on the prebuilt `builder:cache` image — the native `make test-local` inner loop works minutes after opening (warm re-run ~7 s). `Makefile` build jobs are now RAM-capped (`JOBS`), fixing OOM kills on 8 GiB Docker VMs.
