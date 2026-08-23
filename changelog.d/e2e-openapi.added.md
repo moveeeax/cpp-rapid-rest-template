@@ -1,0 +1,1 @@
+The e2e suite validates every real JSON response against the OpenAPI schemas (dependency-free subset validator + committed spec JSON with a freshness hash); the first pass fixed the spec's missing `status` field, three long-standing YAML flow-map errors, four undocumented statuses and the absent `Post` schema.

@@ -1,0 +1,1 @@
+`Billing::spend` — idempotent credit spending with a partial unique reference index (migration 009) and typed `InsufficientCredits`; the wallet test suite gains a randomized 300-op invariant check (`SUM(ledger) == cached balance` after every step).

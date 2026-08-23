@@ -1,0 +1,1 @@
+CI sanitizers (ASan+UBSan and TSan) now cover the integration+api buckets against real Postgres/Redis, not just unit — the first instrumented run caught and fixed a latent heap-use-after-free (range-for over a temporary json).
