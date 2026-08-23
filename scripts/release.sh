@@ -20,6 +20,14 @@
 #     helm/{cpp-api,cpp-worker,cpp-frontend,cpp-env}/Chart.yaml
 #                                      appVersion (default tag for standalone
 #                                      installs + app.kubernetes.io/version)
+#     .template-version                the stamp scripts/sync-upstream.sh reads
+#                                      in a downstream fork as its patch base —
+#                                      each release tarball must self-identify.
+#                                      TEMPLATE REPO ONLY: in a fork (project.env
+#                                      carries TEMPLATE_FORK=1) the stamp means
+#                                      "last template release synced" and is
+#                                      owned by sync-upstream.sh, so it is NOT
+#                                      bumped by the fork's own releases.
 #
 # Deliberately NOT touched: vcpkg.json "version" (the Dockerfile keys the
 # dependency-install layer on that manifest — bumping it rebuilds ~29 packages
@@ -117,6 +125,14 @@ for chart in cpp-api cpp-worker cpp-frontend cpp-env; do
     echo "  bumped helm/$chart/Chart.yaml  appVersion -> $new_version"
 done
 
+if grep -qs '^TEMPLATE_FORK=1' "$REPO/project.env"; then
+    echo "  skipped .template-version    (TEMPLATE_FORK=1 — owned by scripts/sync-upstream.sh)"
+else
+    bump .template-version \
+        '(?m)^[0-9][0-9.]*$' "$new_version" 1
+    echo "  bumped .template-version     -> $new_version"
+fi
+
 # --- verify ------------------------------------------------------------------
 echo ""
 "$SCRIPT_DIR/check-version-sync.sh"
@@ -124,7 +140,7 @@ echo ""
 # --- show the human what happened and what is next ---------------------------
 echo ""
 git -C "$REPO" --no-pager diff --stat -- \
-    CMakeLists.txt helm/cpp-env helm/cpp-api/Chart.yaml \
+    CMakeLists.txt .template-version helm/cpp-env helm/cpp-api/Chart.yaml \
     helm/cpp-worker/Chart.yaml helm/cpp-frontend/Chart.yaml
 cat <<EOF
 

@@ -22,8 +22,14 @@ map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
 - React page: `./scripts/new-react-page.sh`
 - Release: `./scripts/release.sh <ver>` — after the human retitles the
   CHANGELOG `[Unreleased]` heading, bumps every other version point in one
-  command (CMakeLists + 9 helm tag pins + 4 Chart.yaml appVersions); commits
-  nothing (CONTRIBUTING.md "Release")
+  command (CMakeLists + 9 helm tag pins + 4 Chart.yaml appVersions +
+  `.template-version`); commits nothing (CONTRIBUTING.md "Release")
+- Fork→template sync: `./scripts/sync-upstream.sh` — run IN a fork; pulls
+  template fixes by three-way patching between release tarballs (base =
+  `.template-version` stamp), so degit forks without shared git history get
+  conflict markers instead of silent overwrites. In a fork, `project.env`
+  `TEMPLATE_FORK=1` makes release.sh/check-version-sync leave the stamp to
+  the sync script (docs/UPSTREAM.md).
 
 The generators encode the invariants below — their output passes the CI
 gates by construction. Hand-rolled versions usually don't.
@@ -94,7 +100,7 @@ gates by construction. Hand-rolled versions usually don't.
    && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh
    && ./scripts/check-config-sync.sh` — seconds, no build.
    Touched a `check-*` script? Also run `./scripts/check-selftest.sh` —
-   plants 18 breakages and requires every gate to catch and name them
+   plants 19 breakages and requires every gate to catch and name them
    (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
    `scripts/`, `helm/` or `.github/workflows/`, with a nightly
    unconditional backstop in `.github/workflows/gates-nightly.yml`)
@@ -131,8 +137,10 @@ CI; the fork enables it per `docs/RENDER-GATE.md`.
 - Don't bump `version` in `vcpkg.json` — the Dockerfile keys the whole
   dependency-install layer on that manifest, so touching it rebuilds ~29
   packages and blows CI timeouts. The release version lives in
-  `CMakeLists.txt` `project(VERSION …)`, the helm image-tag pins and the
-  `Chart.yaml` appVersions, and must match the newest CHANGELOG heading
+  `CMakeLists.txt` `project(VERSION …)`, the helm image-tag pins, the
+  `Chart.yaml` appVersions and the `.template-version` stamp (template repo
+  only — a fork's stamp is owned by `sync-upstream.sh`), and must match the
+  newest CHANGELOG heading
   (`scripts/check-version-sync.sh` gates all of them; `scripts/release.sh`
   bumps all of them).
 - Don't change the error-response shape without updating `docs/openapi.yaml`.

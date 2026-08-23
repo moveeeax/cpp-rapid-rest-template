@@ -23,7 +23,7 @@ question instead of grepping the tree.
 | [`CONFIG.md`](CONFIG.md) | Single table mapping every JSON key ↔ env var ↔ default |
 | [`TESTING.md`](TESTING.md) | Test buckets (unit/integration/api/e2e), what's covered vs not, coverage, the disabled-race note |
 | [`ORGS.md`](ORGS.md) | Multi-tenancy starter kit (`scripts/add-orgs.sh`): two role layers, fail-closed org context, claim/switch semantics, deny-by-default matrix |
-| [`UPSTREAM.md`](UPSTREAM.md) | Fork↔template sync: pulling template fixes, the backport-candidate discipline for giving generic fixes back |
+| [`UPSTREAM.md`](UPSTREAM.md) | Fork↔template sync: `scripts/sync-upstream.sh` (three-way tarball patching for degit forks, `.template-version` stamp), git merge for full-history forks, the backport-candidate discipline for giving generic fixes back |
 | [`BENCHMARKS.md`](BENCHMARKS.md) | How to measure latency/throughput/footprint (`make bench` + presets) + a results template |
 | [`PATTERNS-FROM-FLASK-BASE.md`](PATTERNS-FROM-FLASK-BASE.md) | Authoritative list of patterns lifted from flask-base (file-level mapping included) |
 | [`../src/billing/Wallet.hpp`](../src/billing/Wallet.hpp) | Billing module core (PayPal top-ups → credit wallet): append-only ledger, idempotent capture/refund — the canonical example of the no-self-referencing-upsert accumulation pattern. Controllers in `src/api/BillingController.hpp` / `AdminBillingController.hpp`, transactional emails in `src/email/BillingEmails.hpp` |
