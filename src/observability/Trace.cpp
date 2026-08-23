@@ -5,6 +5,11 @@
  *        helpers (file-local) and the thread-local ambient traceparent. The
  *        attribute keys and the TraceContext struct stay in the header; every
  *        contract is documented on the declarations there.
+ *
+ *        std-only on purpose (see the header note): the OTel-coupled
+ *        to_remote_span_context lives in TraceOtel.cpp, so this TU can be
+ *        compiled straight into the fuzz_traceparent libFuzzer harness
+ *        (tests/fuzz) with no third-party dependencies at all.
  */
 
 #include "observability/Trace.hpp"
@@ -15,8 +20,6 @@
 #include <chrono>
 #include <cstdint>
 #include <random>
-
-#include <opentelemetry/nostd/span.h>
 
 namespace Observability::Trace {
 
@@ -41,31 +44,6 @@ std::string to_lower_ascii(std::string_view s) {
     std::transform(
         out.begin(), out.end(), out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return out;
-}
-
-/**
- * @brief Hex string → fixed-size byte buffer (for TraceId/SpanId).
- * @return false if the input length doesn't match or has a non-hex char.
- */
-bool hex_to_bytes(std::string_view hex, uint8_t* out, size_t n) {
-    if (hex.size() != n * 2)
-        return false;
-    auto nibble = [](char c) -> int {
-        if (c >= '0' && c <= '9')
-            return c - '0';
-        if (c >= 'a' && c <= 'f')
-            return c - 'a' + 10;
-        if (c >= 'A' && c <= 'F')
-            return c - 'A' + 10;
-        return -1;
-    };
-    for (size_t i = 0; i < n; ++i) {
-        const int hi = nibble(hex[2 * i]), lo = nibble(hex[2 * i + 1]);
-        if (hi < 0 || lo < 0)
-            return false;
-        out[i] = static_cast<uint8_t>((hi << 4) | lo);
-    }
-    return true;
 }
 
 std::string to_hex(const uint8_t* bytes, size_t n) {
@@ -163,19 +141,6 @@ TraceContext extract_or_generate(std::string_view traceparent_header) {
             return *parsed;
     }
     return generate_context();
-}
-
-std::optional<opentelemetry::trace::SpanContext> to_remote_span_context(const TraceContext& t) {
-    uint8_t tid[16], sid[8], flags[1];
-    if (!detail::hex_to_bytes(t.trace_id, tid, 16) || !detail::hex_to_bytes(t.parent_id, sid, 8) ||
-        !detail::hex_to_bytes(t.flags, flags, 1)) {
-        return std::nullopt;
-    }
-    return opentelemetry::trace::SpanContext(
-        opentelemetry::trace::TraceId(opentelemetry::nostd::span<const uint8_t, 16>(tid)),
-        opentelemetry::trace::SpanId(opentelemetry::nostd::span<const uint8_t, 8>(sid)),
-        opentelemetry::trace::TraceFlags(flags[0]),
-        /*is_remote=*/true);
 }
 
 std::string& current_traceparent_ref() {
