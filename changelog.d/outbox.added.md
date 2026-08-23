@@ -1,0 +1,1 @@
+Opt-in transactional outbox (`Outbox::enqueue` in the caller's transaction + `SKIP LOCKED` drain into the jobs queue, migration 010, `outbox.drain_interval_sec` default off) for events whose loss after commit is unacceptable; decision guide in CONVENTIONS gotcha 20.
