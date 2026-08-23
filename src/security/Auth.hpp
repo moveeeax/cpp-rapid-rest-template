@@ -134,8 +134,6 @@ std::optional<AuthPrincipal> principal_of(const drogon::HttpRequestPtr& req);
 
 bool has_role(const drogon::HttpRequestPtr& req, const std::string& role);
 
-bool has_any_role(const drogon::HttpRequestPtr& req, const std::vector<std::string>& roles);
-
 /**
  * @brief True when auth checks must be enforced — the module is initialized
  *        and not running in AuthMode::None. Shared guard for the require_*
@@ -148,8 +146,6 @@ bool auth_enforced();
  *        or nullptr if it has the role (or auth is disabled).
  */
 drogon::HttpResponsePtr require_role(const drogon::HttpRequestPtr& req, const std::string& role);
-
-drogon::HttpResponsePtr require_any_role(const drogon::HttpRequestPtr& req, const std::vector<std::string>& roles);
 
 /**
  * @brief nullptr if the caller's email is confirmed (or auth is disabled);
@@ -177,8 +173,6 @@ drogon::HttpResponsePtr require_confirmed(const drogon::HttpRequestPtr& req);
 std::uint32_t current_permissions(const drogon::HttpRequestPtr& req);
 
 bool current_user_can(const drogon::HttpRequestPtr& req, std::uint32_t perm);
-
-bool current_user_is_admin(const drogon::HttpRequestPtr& req);
 
 /**
  * @brief Returns a 403 response if the request's principal lacks the

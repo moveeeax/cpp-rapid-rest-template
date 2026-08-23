@@ -138,8 +138,6 @@ public:
         return true;
     }
 
-    bool produce(const std::string& topic, const std::string& payload) { return produce(topic, "", payload); }
-
     int flush(int timeout_ms = 10000) {
         check_initialized();
         return producer->flush(timeout_ms);
@@ -306,16 +304,6 @@ public:
     }
 
     void stop_consuming() { consuming = false; }
-
-    bool commit() {
-        check_initialized();
-        RdKafka::ErrorCode err = consumer->commitSync();
-        if (err != RdKafka::ERR_NO_ERROR) {
-            spdlog::error("Failed to commit offsets: {}", RdKafka::err2str(err));
-            return false;
-        }
-        return true;
-    }
 
     void shutdown() {
         if (initialized) {

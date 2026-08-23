@@ -57,6 +57,22 @@ hand-written variant because it joins roles):
 - Every write wraps `Database::get().execute_write([&](auto& txn){…})`. The
   lambda MUST take `auto& txn` (it receives `detail::TracingTxn&`, not a raw
   `pqxx::work&`). Use `execute_read_primary` for read-after-write.
+- Two more `execute_*` variants exist for forks (nothing in the template
+  itself calls them — don't let that fool you into deleting them):
+  - `execute_write_idempotent(fn)` — same as `execute_write` but with the
+    liberal read-style retry classifier, which may REPLAY the whole
+    transaction after a connection-class error whose commit already landed.
+    Safe only for writes keyed by a natural key (UPSERT by name, DELETE by
+    PK) where a replay converges instead of double-applying.
+  - `execute_transaction(IsolationLevel, fn)` — multi-statement transaction
+    at `ReadCommitted` / `RepeatableRead` / `Serializable` (one-arg overload
+    defaults to ReadCommitted). Retry classification matches
+    `execute_write` (only PG-confirmed 40001/40P01 rollbacks — exactly what
+    Serializable produces under contention).
+
+  Both are pinned by real-Postgres tests in
+  `tests/integration/test_database.cpp` and compile-checked against the DI
+  seam in `tests/unit/test_database_seam.cpp`.
 - Wrap UNIQUE/FK-tripping writes in `detail::translate_sql(...)`
   (`repositories/SqlErrors.hpp`) to turn a SQLSTATE into your typed exception —
   otherwise a constraint violation surfaces as a raw 500. For the ubiquitous

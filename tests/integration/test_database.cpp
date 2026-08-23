@@ -161,6 +161,88 @@ TEST_F(DatabaseManagerTest, ExecuteWrite) {
     EXPECT_EQ(result[0][0].template as<std::string>(), "test_value");
 }
 
+// --- execute_transaction / execute_write_idempotent (fork-facing API) ---
+// Real-Postgres coverage for the two execute_* variants nothing in the
+// template calls in production code — forks do (documented in
+// docs/CONVENTIONS.md §3). The unit-level seam only proves they compile and
+// enter the hook (test_database_seam.cpp); these prove the actual semantics.
+
+TEST_F(DatabaseManagerTest, ExecuteTransactionRunsAtRequestedIsolationLevel) {
+    auto isolation = [](auto& txn) {
+        auto r = txn.exec("SHOW transaction_isolation");
+        return r[0][0].template as<std::string>();
+    };
+
+    // Convenience overload = ReadCommitted (the Postgres default — no SET
+    // TRANSACTION is issued on this path).
+    EXPECT_EQ(Database::get().execute_transaction(isolation), "read committed");
+    EXPECT_EQ(Database::get().execute_transaction(Database::IsolationLevel::ReadCommitted, isolation),
+              "read committed");
+    EXPECT_EQ(Database::get().execute_transaction(Database::IsolationLevel::RepeatableRead, isolation),
+              "repeatable read");
+    EXPECT_EQ(Database::get().execute_transaction(Database::IsolationLevel::Serializable, isolation), "serializable");
+}
+
+TEST_F(DatabaseManagerTest, ExecuteTransactionIsAtomicAcrossStatements) {
+    Database::get().execute_write([](auto& txn) {
+        txn.exec("DROP TABLE IF EXISTS test_table");
+        txn.exec("CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT)");
+        return 0;
+    });
+
+    // Happy path: both statements of one transaction land together.
+    const int inserted = Database::get().execute_transaction([](auto& txn) {
+        txn.exec("INSERT INTO test_table (name) VALUES ('a')");
+        txn.exec("INSERT INTO test_table (name) VALUES ('b')");
+        return 2;
+    });
+    EXPECT_EQ(inserted, 2);
+
+    // Failure path: a throw after the first INSERT must roll BOTH back —
+    // a non-pqxx exception is not classified transient, so no retry either.
+    EXPECT_THROW(Database::get().execute_transaction([](auto& txn) {
+        txn.exec("INSERT INTO test_table (name) VALUES ('c')");
+        throw std::runtime_error("boom");
+        return 0;
+    }),
+                 std::runtime_error);
+
+    auto r = Database::get().execute_read([](auto& txn) { return txn.exec("SELECT COUNT(*) FROM test_table"); });
+    EXPECT_EQ(r[0][0].template as<long>(), 2) << "the failed transaction must leave no partial rows";
+}
+
+TEST_F(DatabaseManagerTest, ExecuteWriteIdempotentUpsertConvergesOnReplay) {
+    // execute_write_idempotent uses the liberal (read-style) retry classifier,
+    // which may replay the whole transaction after a connection-class error a
+    // commit could already have survived. That is safe ONLY for writes keyed
+    // by a natural key — replaying converges instead of double-applying.
+    // Exercise exactly that contract: an UPSERT keyed by name.
+    Database::get().execute_write([](auto& txn) {
+        txn.exec("DROP TABLE IF EXISTS test_table");
+        txn.exec("CREATE TABLE test_table (name TEXT PRIMARY KEY, val INT NOT NULL)");
+        return 0;
+    });
+
+    auto upsert = [](int val) {
+        return Database::get().execute_write_idempotent([val](auto& txn) {
+            txn.exec_params(
+                "INSERT INTO test_table (name, val) VALUES ($1, $2) "
+                "ON CONFLICT (name) DO UPDATE SET val = EXCLUDED.val",
+                "job-42",
+                val);
+            return val;
+        });
+    };
+
+    EXPECT_EQ(upsert(1), 1);
+    EXPECT_EQ(upsert(2), 2);  // replay of the same logical write — converges
+
+    auto r =
+        Database::get().execute_read([](auto& txn) { return txn.exec("SELECT COUNT(*), MAX(val) FROM test_table"); });
+    EXPECT_EQ(r[0][0].template as<long>(), 1) << "same key must never duplicate";
+    EXPECT_EQ(r[0][1].template as<int>(), 2) << "last write wins";
+}
+
 TEST_F(DatabaseLifecycleTest, UnreachableReplicaDoesNotBlockBoot) {
     // Replica is an optional read optimization: a dead replica URL must not
     // fail initialization (it used to crash-loop the whole app). Reads then
