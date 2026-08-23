@@ -32,6 +32,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "api/RequestUtils.hpp"
 #include "utils/ErrorResponse.hpp"
 
 namespace Api::Validation {
@@ -224,8 +225,16 @@ inline void email(Errors& errs, const json& body, const std::string& field) {
 }
 
 inline void uuid(Errors& errs, const json& body, const std::string& field) {
-    static const std::regex re("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
-    regex_match(errs, body, field, re, "uuid");
+    // Single source of truth for the 8-4-4-4-12 hex shape: the char-walk in
+    // RequestUtils (Api::detail::is_uuid_segment) — this used to be a second,
+    // regex-based UUID implementation that could drift from it. Same error
+    // contract as the regex validators: "bad_format" on mismatch, "not_string"
+    // on a wrong-typed field, no-op when absent (presence is require()'s job).
+    const auto* s = detail::as_string(errs, body, field);
+    if (!s)
+        return;
+    if (!Api::detail::is_uuid_segment(*s))
+        errs.add(field, "bad_format", "expected format: uuid");
 }
 
 // ---------------------------------------------------------------------------
