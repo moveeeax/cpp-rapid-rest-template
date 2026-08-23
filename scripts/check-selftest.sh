@@ -9,8 +9,9 @@
 # with zero rules — green for months, checking nothing. So: for each of the eight
 # check scripts, copy the subtree it reads into a scratch dir, plant a known
 # breakage, and require the gate to FAIL and to NAME what it found. Two planted
-# breakages per gate (four for check-version-sync.sh, which also guards the
-# helm image pins and Chart.yaml appVersions), eighteen in all.
+# breakages per gate (five for check-version-sync.sh, which also guards the
+# helm image pins, Chart.yaml appVersions and the .template-version stamp),
+# nineteen in all.
 #
 # Every case follows the same discipline (borrowed from the cyber-accountant
 # fork's check-render-selftest.sh, which learned it the expensive way):
@@ -176,7 +177,7 @@ run_case() {
     echo "SELFTEST OK   [$label]: $gate exit $status, named the planted breakage"
 }
 
-# --- the sixteen breakages ---------------------------------------------------
+# --- the nineteen breakages --------------------------------------------------
 # Each mutator takes the copy root as $1, edits in place, and COUNTS. An
 # anchor that stops matching must fail the mutator loudly (see run_case), not
 # no-op — every anchor below is a real line in this repo today.
@@ -354,6 +355,24 @@ with open(path, encoding="utf-8") as fh:
 text, n = re.subn(r'(?m)^(appVersion:[ \t]*")[^"]*(")', r"\g<1>0.0.1\g<2>", text)
 if n != 1:
     sys.exit("break_chart_appversion_drift: rewrote %d appVersion line(s) in %s — "
+             "expected exactly 1" % (n, path))
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+PY
+}
+
+# 8d. The .template-version stamp left behind on a release — a lying tarball
+#     stamp hands every downstream fork's sync-upstream.sh a wrong three-way
+#     patch base.
+break_template_version_drift() {
+    python3 - "$1/.template-version" <<'PY'
+import re, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+text, n = re.subn(r"(?m)^[0-9][0-9.]*$", "0.0.9", text)
+if n != 1:
+    sys.exit("break_template_version_drift: rewrote %d version line(s) in %s — "
              "expected exactly 1" % (n, path))
 with open(path, "w", encoding="utf-8") as fh:
     fh.write(text)
@@ -543,22 +562,27 @@ run_case bucket-dup-api check-test-buckets.sh break_bucket_dup_api \
     'Base64Test'
 
 run_case changelog-phantom-release check-version-sync.sh break_changelog_phantom_release \
-    "CMakeLists.txt CHANGELOG.md helm" \
+    "CMakeLists.txt CHANGELOG.md helm .template-version" \
     'version drift' \
     'newest release heading [99.99.99]'
 
 run_case changelog-heading-format check-version-sync.sh break_changelog_heading_format \
-    "CMakeLists.txt CHANGELOG.md helm" \
+    "CMakeLists.txt CHANGELOG.md helm .template-version" \
     "could not parse a released '## [x.y.z]' heading"
 
 run_case helm-tag-drift check-version-sync.sh break_helm_tag_drift \
-    "CMakeLists.txt CHANGELOG.md helm" \
+    "CMakeLists.txt CHANGELOG.md helm .template-version" \
     'helm image tag drift: helm/cpp-env/values-stage.yaml pins tag "9.9.9"' \
     'A stale pin deploys an old image'
 
 run_case chart-appversion-drift check-version-sync.sh break_chart_appversion_drift \
-    "CMakeLists.txt CHANGELOG.md helm" \
+    "CMakeLists.txt CHANGELOG.md helm .template-version" \
     'appVersion drift: helm/cpp-api/Chart.yaml has appVersion "0.0.1"'
+
+run_case template-version-drift check-version-sync.sh break_template_version_drift \
+    "CMakeLists.txt CHANGELOG.md helm .template-version" \
+    '.template-version drift: the stamp says "0.0.9"' \
+    'wrong three-way patch base'
 
 run_case nginx-location-drift check-frontend-nginx-sync.sh break_nginx_location_drift \
     "frontend/nginx.conf helm/cpp-frontend/templates/configmap.yaml" \
