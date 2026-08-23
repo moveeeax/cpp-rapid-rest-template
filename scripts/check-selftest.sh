@@ -6,11 +6,11 @@
 # `exit 0`, and this template's own history has both failure modes on record:
 # check-test-buckets.sh read only its first directory argument (tests/api was
 # never scanned), and a downstream fork shipped a gitleaks config that scanned
-# with zero rules — green for months, checking nothing. So: for each of the seven
+# with zero rules — green for months, checking nothing. So: for each of the eight
 # check scripts, copy the subtree it reads into a scratch dir, plant a known
 # breakage, and require the gate to FAIL and to NAME what it found. Two planted
 # breakages per gate (four for check-version-sync.sh, which also guards the
-# helm image pins and Chart.yaml appVersions), sixteen in all.
+# helm image pins and Chart.yaml appVersions), eighteen in all.
 #
 # Every case follows the same discipline (borrowed from the cyber-accountant
 # fork's check-render-selftest.sh, which learned it the expensive way):
@@ -468,6 +468,42 @@ with open(path, "a", encoding="utf-8") as fh:
 PY
 }
 
+# 15. A config knob read in code that config.json (and every other copy)
+#     never heard of — the "added the key, forgot the skeletons and docs"
+#     drift the config-sync gate exists to stop.
+break_config_unregistered_key() {
+    python3 - "$1/src/core/Core.cpp" <<'PY'
+import sys
+path = sys.argv[1]
+planted = 'cfg.get<int>("selftest.planted_key", "SELFTEST_PLANTED_KEY", 1);'
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+if planted in text:
+    sys.exit("break_config_unregistered_key: %s already contains the planted read" % path)
+# Appended at EOF — never compiled, only parsed by the gate's extractor.
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write("\n// planted by scripts/check-selftest.sh\n"
+             "static void selftest_planted_(Config::AppConfig& cfg) { " + planted + " }\n")
+PY
+}
+
+# 16. A documented env row deleted from CONFIG.md while the code still reads
+#     the knob — the "full table" quietly stops being full.
+break_config_doc_row_removed() {
+    python3 - "$1/docs/CONFIG.md" <<'PY'
+import re, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+text, n = re.subn(r"(?m)^\|\s*`MAIL_TIMEOUT_SEC`.*\n", "", text)
+if n != 1:
+    sys.exit("break_config_doc_row_removed: removed %d MAIL_TIMEOUT_SEC row(s) in %s "
+             "— expected exactly 1" % (n, path))
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+PY
+}
+
 # --- run them ----------------------------------------------------------------
 # Needles are LITERAL substrings of each gate's real diagnostics (grep -F).
 # When a gate's wording changes, the needle changes in the same PR — that is
@@ -554,6 +590,19 @@ run_case module-dep-core-hub check-module-deps.sh break_module_dep_core_hub \
     "src docs/module-deps.txt" \
     'forbidden include of the composition root: src/api/Guards.hpp includes "core/Core.hpp"' \
     'include "core/Modules.hpp"'
+
+CONFIG_SYNC_PATHS="src config/config.json config/config.sample.json docs/CONFIG.md docs/config-sync-allowlist.txt helm/cpp-api/templates/deployment.yaml helm/cpp-worker/templates/deployment.yaml"
+
+run_case config-unregistered-key check-config-sync.sh break_config_unregistered_key \
+    "$CONFIG_SYNC_PATHS" \
+    "config key 'selftest.planted_key'" \
+    'missing from config/config.json' \
+    'missing from config/config.sample.json' \
+    "env 'SELFTEST_PLANTED_KEY'"
+
+run_case config-stale-doc-row check-config-sync.sh break_config_doc_row_removed \
+    "$CONFIG_SYNC_PATHS" \
+    "env 'MAIL_TIMEOUT_SEC' is read in src/ but not documented in docs/CONFIG.md"
 
 # --- verdict -----------------------------------------------------------------
 
