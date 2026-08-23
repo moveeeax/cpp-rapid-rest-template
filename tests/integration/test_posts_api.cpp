@@ -264,7 +264,12 @@ TEST_F(PostsApiTest, PreviewTokenRevealsDraft) {
 
     // Still absent from the public list even with a live preview token.
     auto list_resp = call([&](auto cb) { controller.publicListPosts(TestHelpers::make_request(Get), std::move(cb)); });
-    for (const auto& item : json::parse(std::string(list_resp->body()))["data"])
+    // Materialize before iterating: ranging over json::parse(...)["data"]
+    // binds a reference into a temporary that dies at the end of the full
+    // expression — a heap-use-after-free ASan and TSan both caught the first
+    // time this suite ran instrumented.
+    const json list_body = json::parse(std::string(list_resp->body()));
+    for (const auto& item : list_body["data"])
         EXPECT_NE(item.value("slug", ""), "preview-wip");
 }
 
