@@ -94,11 +94,13 @@ cpp-api:
   app:
     baseUrl: "https://app.demo.tarassov.me"
     name: "C++ REST Template — Demo"
+  # init-project:content:start
   # The demo showcases the content module: posts + markdown delivery +
   # admin uploads (stored on the pod's uploads emptyDir — throwaway, like
   # everything here).
   content:
     enabled: true
+  # init-project:content:end
   tracing:
     enabled: true
     otlpEndpoint: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"

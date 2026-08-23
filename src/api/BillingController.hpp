@@ -162,9 +162,9 @@ public:
 private:
     /// Gate a billing-module handler: when the module is off
     /// (BILLING_ENABLED=false, the default) the whole surface answers 404
-    /// instead of a 500 against missing tables/credentials. Mirrors
-    /// Api::require_content_enabled (Guards.hpp); kept controller-local
-    /// because Guards.hpp has no generic per-module variant. Returns false
+    /// instead of a 500 against missing tables/credentials. Kept
+    /// controller-local because Guards.hpp has no generic per-module
+    /// variant. Returns false
     /// after responding — callers `if (!require_billing_enabled(callback))
     /// return;`.
     static bool require_billing_enabled(const std::function<void(const HttpResponsePtr&)>& callback);

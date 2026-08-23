@@ -104,6 +104,7 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 | `DOCS_ENABLED` | `docs.enabled` | bool | `false` | Mount `/api/v1/docs` + `/api/v1/openapi.yaml` — dev only |
 | `DOCS_OPENAPI_PATH` | `docs.openapi_path` | string | `docs/openapi.yaml` | Path served at `/api/v1/openapi.yaml` |
 
+<!-- init-project:content:start -->
 ## Object storage
 
 `Storage::get()` is a get/put/remove seam (`src/storage/Storage.hpp`). Two
@@ -122,6 +123,7 @@ else fails fast at boot. Swap in another store by subclassing `StorageBackend`.
 | `S3_SECRET_KEY` | `storage.s3.secret_key` | string | — | |
 | `S3_TIMEOUT_SEC` | `storage.s3.timeout_sec` | int | `10` | Per-request budget |
 | `S3_CONNECT_TIMEOUT_SEC` | `storage.s3.connect_timeout_sec` | int | `2` | Connect budget |
+<!-- init-project:content:end -->
 
 ## Observability
 
@@ -214,6 +216,7 @@ For URL components: `REDIS_HOST`, `REDIS_PORT`.
 | `OUTBOX_DRAIN_INTERVAL_SEC` | `outbox.drain_interval_sec` | int | `0` | Transactional outbox (`src/jobs/Outbox.hpp`): how often the API pod relays `outbox` table rows to the job queue. `0` (default) disables draining — the pattern is opt-in; rows written via `Outbox::enqueue` sit in Postgres until a deploy enables this. Needs `jobs.enabled=true`. |
 | `DB_REPLICA_LAG_METRIC_REFRESH_SEC` | `database.replica_lag_metric_refresh_sec` | int | `15` | Refresh interval for the `db_replica_lag_seconds` gauge. Only registered when read replicas are configured (primary has no replay timestamp). |
 
+<!-- init-project:content:start -->
 ## Content
 
 | Env | JSON key | Type | Default | Notes |
@@ -229,12 +232,13 @@ readers get 401/404 on routes the code otherwise treats as public. See
 without these and intentionally ships with content still gated off. With the
 additive `API_PUBLIC_PATHS_EXTRA` key this footgun is avoidable: keep the
 override minimal (or unset) and add module paths through the extra key.
+<!-- init-project:content:end -->
 
 ## Billing module
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `BILLING_ENABLED` | `billing.enabled` | bool | `false` | Master switch for the billing module (`Core::billing_enabled()`) — same on/off pattern as `CONTENT_ENABLED`; routes stay registered, handlers 404 while off. `Billing::initialize()` (called from `Core::initialize()`) throws at boot if this is `true` and `client_id`/`client_secret`/`webhook_id` are empty. |
+| `BILLING_ENABLED` | `billing.enabled` | bool | `false` | Master switch for the billing module (`Core::billing_enabled()`) — same on/off pattern as `JOBS_ENABLED`; routes stay registered, handlers 404 while off. `Billing::initialize()` (called from `Core::initialize()`) throws at boot if this is `true` and `client_id`/`client_secret`/`webhook_id` are empty. |
 | — | `billing.provider` | string | `paypal` | Only provider supported today |
 | `BILLING_CURRENCY` | `billing.currency` | string | `USD` | ISO 4217; must be a 2-decimal currency (the cents parser rejects others) |
 | `BILLING_CREDITS_PER_UNIT` | `billing.credits_per_unit` | int | `100` | Credits minted per currency unit (100 cents) captured. Config default only — the live value is the `billing_settings` row (migration 008), editable at runtime by the admin API |

@@ -12,7 +12,7 @@ question instead of grepping the tree.
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Pre-commit setup, dev workflow, commit-message convention, release flow |
 | [`../SECURITY.md`](../SECURITY.md) | Disclosure policy + production-hardening checklist |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | Versioned change log (semver; authored via `changelog.d/` fragments — parallel-safe, see [`../changelog.d/README.md`](../changelog.d/README.md) — or directly under `## [Unreleased]`) |
-| [`../REMOVING-THE-DEMO.md`](../REMOVING-THE-DEMO.md) | What's reference-only (flask-base) vs the real app, and how to strip it (`init-project.sh --no-demo`) |
+| [`../REMOVING-THE-DEMO.md`](../REMOVING-THE-DEMO.md) | What's reference-only (flask-base) vs the real app, and how to strip it (`init-project.sh --no-demo` / `--minimal`, `remove-content-module.sh`) |
 
 ## Worked examples & deep-dives
 
@@ -92,7 +92,8 @@ question instead of grepping the tree.
 
 | Script | Purpose |
 |---|---|
-| `init-project.sh` | One-shot rename of template identity (project name, registry, helm charts) |
+| `init-project.sh` | One-shot rename of template identity (project name, registry, helm charts); `--no-demo` / `--minimal` strip demo weight, `--with-orgs` chains `add-orgs.sh` |
+| `remove-content-module.sh` | ONE-SHOT removal of the content module (posts/uploads/sitemap) with all sync gates kept green — see REMOVING-THE-DEMO.md |
 | `new-resource.sh` | Scaffold a FULL CRUD resource (domain + repository + controller + registry + openapi + test) per docs/CONVENTIONS.md; `--owned` per-user, `--org-scoped` per-tenant |
 | `add-orgs.sh` | ONE-SHOT installer of the multi-tenancy starter kit (src/tenancy/, org guards, orgs API, migration, tests) — see docs/ORGS.md |
 | `new-endpoint.sh` | Scaffold a single controller + registry row + optional test + optional OpenAPI patch |

@@ -12,7 +12,15 @@ map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
   orgs kit below).
 - Multi-tenancy starter (one-shot, NOT a runtime flag): `./scripts/add-orgs.sh`
   — installs src/tenancy/, org guards, orgs API + migration + tests
-  (docs/ORGS.md).
+  (docs/ORGS.md). Also available at bootstrap: `init-project.sh --with-orgs`.
+- Fork bootstrap: `./scripts/init-project.sh <name> [registry] [domain]` —
+  `--no-demo` strips reference material; `--minimal` additionally runs
+  `./scripts/remove-content-module.sh` (one-shot removal of the content
+  module — posts/uploads/sitemap — via `init-project:content:*` marker
+  blocks + pattern edits, gates stay green; REMOVING-THE-DEMO.md). When
+  cutting content-module code into a shared file, keep it inside those
+  markers. init-project's self-verification skips docs/superpowers/
+  (historical archives keep pre-rename tokens verbatim).
 - Single endpoint: `./scripts/new-endpoint.sh FooController Get /api/v1/foo
   [--with-test] [--patch-openapi]`
 - Background job: `./scripts/new-job.sh <type>`

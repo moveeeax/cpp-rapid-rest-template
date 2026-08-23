@@ -31,11 +31,13 @@ namespace Utils::Strings {
  * `*-request` / `confirm-resend` routes are deliberately NOT here:
  * change-email-request and confirm-resend require an authenticated principal.
  *
+ * init-project:content:start
  * `/uploads` is here for the same reason as the posts routes: with the local
  * storage backend, post bodies embed same-origin image URLs
  * (UploadController::serveUpload) that anonymous readers have to be able to
  * fetch.
  *
+ * init-project:content:end
  * `/api/v1/billing/paypal/webhook` is PayPal's own server calling us, not a
  * browser — there is no session to authenticate against, and the handler
  * (BillingController::paypalWebhook) verifies PayPal's own request signature
@@ -65,8 +67,10 @@ inline constexpr const char* kDefaultPublicPathsCsv =
     "/api/v1/account/confirm/*,/api/v1/account/reset-password-request,"
     "/api/v1/account/reset-password/*,/api/v1/account/change-email/*,"
     "/api/v1/account/join-from-invite/*,"
+    // init-project:content:start
     "/api/v1/public/posts,/api/v1/public/posts/*,"
     "/posts/*,/sitemap.xml,/uploads/*,"
+    // init-project:content:end
     "/api/v1/billing/paypal/webhook";
 
 /**
@@ -75,14 +79,17 @@ inline constexpr const char* kDefaultPublicPathsCsv =
  *        login & register (credential stuffing), refresh (token churn),
  *        reset-password-request (mail bomb), the token-bearing links
  *        (reset / confirm / change-email / invite — guessable-token attempts),
- *        the content module's public surface (posts list/detail, the
- *        Markdown mirror, the sitemap, and served uploads — all reachable by
- *        an anonymous caller, so all are scrapeable without this), and the
- *        PayPal webhook (a spoofed/replayed flood of POSTs here is real load
- *        on Billing::PayPalClient::verify_webhook_signature's own outbound
- *        call to PayPal — worth the strict per-IP tier same as the rest).
+ *        and the PayPal webhook (a spoofed/replayed flood of POSTs here is
+ *        real load on Billing::PayPalClient::verify_webhook_signature's own
+ *        outbound call to PayPal — worth the strict per-IP tier same as the
+ *        rest).
+ * init-project:content:start
+ *        Also here: the content module's public surface (posts list/detail,
+ *        the Markdown mirror, the sitemap, and served uploads) — all
+ *        reachable by an anonymous caller, so all scrapeable without this.
+ * init-project:content:end
  *
- * This is the auth/account/content subset of kDefaultPublicPathsCsv minus the
+ * This is kDefaultPublicPathsCsv minus the
  * infra and static surface (`/`, `/healthz`, `/ready`, `/health`, `/metrics`,
  * `/api/v1/docs`, `/api/v1/openapi.yaml`), which we never want to throttle. The
  * general limiter skips everything in api.public_paths; without this list the
@@ -94,8 +101,10 @@ inline constexpr const char* kDefaultProtectedPathsCsv =
     "/api/v1/account/confirm/*,/api/v1/account/reset-password-request,"
     "/api/v1/account/reset-password/*,/api/v1/account/change-email/*,"
     "/api/v1/account/join-from-invite/*,"
+    // init-project:content:start
     "/api/v1/public/posts,/api/v1/public/posts/*,"
     "/posts/*,/sitemap.xml,/uploads/*,"
+    // init-project:content:end
     "/api/v1/billing/paypal/webhook";
 
 /**
