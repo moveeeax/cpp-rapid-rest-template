@@ -175,17 +175,11 @@ private:
         }
     }
 
-    /**
-     * @brief Expand ${VAR} and ${VAR:-default} placeholders in a single string.
-     * @details Simple POSIX-shell-style substitution. Unmatched placeholders
-     *          are replaced with empty string (or their default clause).
-     */
-    static std::string expand_string(const std::string& s);
-
-    /**
-     * @brief Recursively walk JSON and expand placeholders in every string value.
-     */
-    static void substitute_env_placeholders(json& node);
+    // The ${VAR} / ${VAR:-default} placeholder expansion (formerly private
+    // statics here) lives in utils/ConfigExpand.hpp as free functions —
+    // load_from_file calls Config::detail::substitute_env_placeholders, and
+    // the fuzz_config_expand harness (tests/fuzz) compiles that TU without
+    // this header's spdlog dependency.
 
     /**
      * @brief Resolve a dot-separated path to the node it names.

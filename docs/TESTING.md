@@ -63,6 +63,55 @@ number reflects the DB/cache/auth/jobs code too — not just unit-reachable line
 The integration and e2e buckets need Postgres + Redis (`make up` first); without
 them those buckets are skipped and the reported coverage drops accordingly.
 
+## Fuzzing
+
+The parsers that eat **external bytes** have libFuzzer harnesses in
+`tests/fuzz/`, run nightly by `.github/workflows/fuzz-nightly.yml`
+(cron + `workflow_dispatch`, ~120 s per target):
+
+| Target | Parser under test | External input it models |
+|---|---|---|
+| `fuzz_traceparent` | `Observability::Trace::parse_traceparent` | `traceparent` header, straight off the network on every request |
+| `fuzz_decimal_cents` | `Billing::detail::parse_decimal_to_cents` (+ round-trip via `cents_to_decimal_string`) | amount strings in PayPal API/webhook bodies |
+| `fuzz_config_expand` | `Config::detail::expand_string` / `substitute_env_placeholders` | `${VAR}` placeholders in config files (fixed, cleared env for determinism) |
+| `fuzz_path_match` | `Utils::Strings::path_is_public` + CSV split/merge, `Api::normalize_path_for_metrics` | request paths and public-path CSV config |
+
+Harnesses check invariants, not just "no crash": accepted traceparents must be
+canonical and format→parse round-trip; accepted amounts must be non-negative
+and survive a cents→string→cents round trip; path normalization must stay
+rooted and idempotent.
+
+**Toolchain decision (why a separate build dir).** libFuzzer requires Clang;
+CI's production toolchain is GCC + vcpkg, and rebuilding the vcpkg dependency
+world under a second compiler is a non-starter for a nightly. So the fuzzers
+deliberately do **not** link `app_core`: each harness compiles the specific
+parser TU directly, and those TUs are kept std-only for exactly this reason
+(`Trace.cpp`, `billing/PayPalParse.cpp`, `utils/Strings.cpp`;
+`utils/ConfigExpand.cpp` additionally needs header-only nlohmann/json, taken
+from the distro package). If you move a fuzzed parser into a TU with heavier
+includes, the fuzz build breaks — that's the tripwire telling you to keep the
+byte-facing surface dependency-free.
+
+Run locally (needs clang; never the normal build dir):
+
+```bash
+cmake -S tests/fuzz -B build-fuzz -DCMAKE_CXX_COMPILER=clang++
+cmake --build build-fuzz -j
+./build-fuzz/fuzz_traceparent tests/fuzz/corpus/fuzz_traceparent   # + libFuzzer flags
+```
+
+Seed corpora live in `tests/fuzz/corpus/<target>/` (valid + boundary inputs).
+The nightly job carries a **growing** corpus between runs via the Actions
+cache and treats the seeds as a read-only starting set. A crash fails the job
+and uploads the reproducer input as the `fuzz-reproducers` artifact; triage by
+re-running `./build-fuzz/<target> <reproducer-file>`.
+
+Not fuzzed (documented limitation): everything behind the network seam —
+`verify_webhook_signature` beyond its pure header/JSON handling
+(`find_header_ci` is compiled into the decimal target's TU but the
+curl-touching flow is not), `parse_capture_response` (nlohmann-based, lives in
+the curl TU), and anything needing Drogon types.
+
 ## Known gaps (be honest about these before you rely on them)
 
 - **No behavioral coverage** for Kafka messaging, SMTP delivery (the Mailer is
