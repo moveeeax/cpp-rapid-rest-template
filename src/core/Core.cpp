@@ -30,6 +30,7 @@
 #include "database/Migrations.hpp"
 #include "email/Mailer.hpp"
 #include "jobs/Jobs.hpp"
+#include "jobs/Outbox.hpp"
 #include "messaging/Messaging.hpp"
 #include "observability/Observability.hpp"
 #include "security/Auth.hpp"
@@ -599,6 +600,31 @@ void Application::init_jobs_(Config::AppConfig& cfg) {
     Jobs::get().set_visibility_timeout(visibility);
     register_dlq_metric_(cfg);
     register_queue_depth_metric_(cfg);
+    register_outbox_drain_(cfg);
+}
+
+void Application::register_outbox_drain_(Config::AppConfig& cfg) {
+    // Tasks is only up in server mode (worker_main runs its own loop), and the
+    // drain needs both stores: rows come from Postgres, jobs land in Redis.
+    if (!Tasks::is_initialized() || !Database::is_initialized() || !Jobs::is_initialized())
+        return;
+    const int interval_sec = cfg.get<int>("outbox.drain_interval_sec", "OUTBOX_DRAIN_INTERVAL_SEC", 0);
+    if (interval_sec <= 0)
+        return;  // opt-in: the outbox table sits inert until a deploy enables draining
+    spdlog::info("Transactional outbox drain enabled: every {}s", interval_sec);
+    Tasks::schedule_recurring("outbox_drain", std::chrono::seconds(interval_sec), [] {
+        if (!Database::is_initialized() || !Jobs::is_initialized())
+            return;
+        try {
+            auto stats = Jobs::Outbox::drain();
+            if (stats.failed > 0)
+                spdlog::warn("outbox drain: {} row(s) failed to submit (will retry)", stats.failed);
+        } catch (const std::exception& e) {
+            // DB hiccup — rows stay put, the next tick retries. Losing a tick
+            // never loses an event; that's the whole point of the table.
+            spdlog::warn("outbox drain failed: {}", e.what());
+        }
+    });
 }
 
 void Application::register_health_check(std::string name, HealthFn probe, bool critical) {
