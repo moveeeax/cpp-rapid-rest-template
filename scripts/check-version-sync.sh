@@ -17,6 +17,9 @@
 #   - helm/*/Chart.yaml appVersion is the default image tag for a standalone
 #     chart install and the app.kubernetes.io/version label; it sat at 1.4.0
 #     while 1.5.x shipped.
+#   - .template-version is the stamp scripts/sync-upstream.sh reads in a
+#     downstream fork as its patch base; in the template repo it must match the
+#     release (checked below; skipped when project.env says TEMPLATE_FORK=1).
 #
 # Everything is compared against the newest RELEASED heading — '## [Unreleased]'
 # is skipped, so a master that carries unreleased work on top of the last
@@ -86,6 +89,40 @@ $tags
 EOF_TAGS
 done
 
+# --- .template-version (template repo only) ----------------------------------
+# The one-line stamp scripts/sync-upstream.sh reads in a downstream fork as its
+# three-way patch base. In the TEMPLATE repo it must track the release version
+# so every release tarball self-identifies. In a FORK (project.env carries
+# TEMPLATE_FORK=1, written by init-project.sh) it means "last template release
+# synced", diverges from the fork's own versions BY DESIGN, and is owned by
+# sync-upstream.sh — so the check is skipped there.
+tv_summary=""
+if grep -qs '^TEMPLATE_FORK=1' "$REPO/project.env"; then
+    tv_summary=" (.template-version: fork mode, owned by sync-upstream.sh)"
+else
+    template_version=""
+    [ -f "$REPO/.template-version" ] &&
+        template_version="$(tr -d '[:space:]' <"$REPO/.template-version")"
+    if [ -z "$template_version" ]; then
+        {
+            echo "✗ .template-version is missing or empty — the one-line stamp"
+            echo "    scripts/sync-upstream.sh uses as a fork's patch base. Restore it:"
+            echo "    printf '%s\\n' $changelog_version > .template-version"
+        } >&2
+        fail=1
+    elif [ "$template_version" != "$changelog_version" ]; then
+        {
+            echo "✗ .template-version drift: the stamp says \"$template_version\""
+            echo "    but the newest CHANGELOG release heading is [$changelog_version]."
+            echo "    A release tarball whose stamp lies gives every downstream fork a"
+            echo "    wrong three-way patch base (scripts/sync-upstream.sh)."
+        } >&2
+        fail=1
+    else
+        tv_summary=" == .template-version"
+    fi
+fi
+
 # --- Chart.yaml appVersion ---------------------------------------------------
 # Default image tag for standalone chart installs and the source of the
 # app.kubernetes.io/version label on every rendered object.
@@ -114,4 +151,4 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 echo "✓ version in sync: $cmake_version (CMakeLists.txt == newest CHANGELOG heading" \
-    "== 9 helm image-tag pins == 4 Chart.yaml appVersions)"
+    "== 9 helm image-tag pins == 4 Chart.yaml appVersions${tv_summary})"
