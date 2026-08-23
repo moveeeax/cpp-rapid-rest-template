@@ -3,14 +3,21 @@
  * @brief Configuration management module for parsing JSON files and environment variables
  * @details Provides utilities to load application configuration from config files
  *          with environment variable overrides following 12-factor app principles
+ *
+ * Non-template bodies (file load/parse, ${VAR} expansion, path lookup, the
+ * global instance lifecycle) live in Config.cpp (compiled once into app_core;
+ * ADR 0003 as amended 2026-08-22). The typed accessors get / require /
+ * get_optional are templates and stay here. NOTE the spdlog include is
+ * load-bearing and deliberate: the get<T> template body logs the
+ * present-but-wrong-type case at ERROR (see its doc), so every including TU
+ * still needs spdlog — it cannot move to the .cpp without changing what
+ * get<T> does.
  */
 
 #pragma once
 
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
-#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -42,10 +49,7 @@ public:
      * @param config_file Path to the configuration file
      * @throws std::runtime_error if file cannot be loaded
      */
-    explicit AppConfig(const std::string& config_file) {
-        config_path = config_file;
-        load_from_file(config_file);
-    }
+    explicit AppConfig(const std::string& config_file);
 
     /**
      * @brief Load configuration from a JSON file
@@ -55,20 +59,7 @@ public:
      *          ${VAR} and ${VAR:-default} placeholders and substituted from
      *          process environment. Keeps secrets out of committed JSON.
      */
-    void load_from_file(const std::string& file_path) {
-        std::ifstream file(file_path);
-        if (!file.is_open()) {
-            throw std::runtime_error("Failed to open config file: " + file_path);
-        }
-
-        try {
-            file >> config_data;
-        } catch (const json::parse_error& e) {
-            throw std::runtime_error("Failed to parse config file: " + std::string(e.what()));
-        }
-
-        substitute_env_placeholders(config_data);
-    }
+    void load_from_file(const std::string& file_path);
 
     /**
      * @brief Get a configuration value with environment variable override
@@ -189,63 +180,12 @@ private:
      * @details Simple POSIX-shell-style substitution. Unmatched placeholders
      *          are replaced with empty string (or their default clause).
      */
-    static std::string expand_string(const std::string& s) {
-        std::string out;
-        out.reserve(s.size());
-        size_t i = 0;
-        while (i < s.size()) {
-            if (i + 1 < s.size() && s[i] == '$' && s[i + 1] == '{') {
-                size_t end = s.find('}', i + 2);
-                if (end == std::string::npos) {
-                    out.append(s, i, std::string::npos);
-                    break;
-                }
-                std::string expr = s.substr(i + 2, end - i - 2);
-                std::string var_name;
-                std::string default_value;
-                bool has_default = false;
-                auto sep = expr.find(":-");
-                if (sep != std::string::npos) {
-                    var_name = expr.substr(0, sep);
-                    default_value = expr.substr(sep + 2);
-                    has_default = true;
-                } else {
-                    var_name = expr;
-                }
-                const char* env_value = var_name.empty() ? nullptr : std::getenv(var_name.c_str());
-                if (env_value != nullptr) {
-                    out.append(env_value);
-                } else if (has_default) {
-                    out.append(default_value);
-                }
-                // else: leave the placeholder unexpanded? No — drop it silently
-                // (matches POSIX shell behavior for unset-without-default).
-                i = end + 1;
-            } else {
-                out.push_back(s[i++]);
-            }
-        }
-        return out;
-    }
+    static std::string expand_string(const std::string& s);
 
     /**
      * @brief Recursively walk JSON and expand placeholders in every string value.
      */
-    static void substitute_env_placeholders(json& node) {
-        if (node.is_string()) {
-            const auto& raw = node.get_ref<const std::string&>();
-            if (raw.find("${") != std::string::npos) {
-                node = expand_string(raw);
-            }
-        } else if (node.is_object()) {
-            for (auto it = node.begin(); it != node.end(); ++it) {
-                substitute_env_placeholders(it.value());
-            }
-        } else if (node.is_array()) {
-            for (auto& v : node)
-                substitute_env_placeholders(v);
-        }
-    }
+    static void substitute_env_placeholders(json& node);
 
     /**
      * @brief Resolve a dot-separated path to the node it names.
@@ -257,23 +197,7 @@ private:
      *          copying the whole config document per segment (the original
      *          behaviour) was pure waste.
      */
-    const json* find_nested_node(const std::string& key) const {
-        const json* current = &config_data;
-        size_t start = 0;
-        while (true) {
-            const size_t pos = key.find('.', start);
-            const std::string segment = (pos == std::string::npos) ? key.substr(start) : key.substr(start, pos - start);
-            if (!current->is_object())
-                return nullptr;
-            const auto it = current->find(segment);
-            if (it == current->end())
-                return nullptr;
-            current = &it.value();
-            if (pos == std::string::npos)
-                return current;
-            start = pos + 1;
-        }
-    }
+    const json* find_nested_node(const std::string& key) const;
 
     /**
      * @brief Convert one config leaf to T.
@@ -315,47 +239,28 @@ private:
 };
 
 /**
- * @brief Global configuration instance
- */
-inline std::unique_ptr<AppConfig> global_config = nullptr;
-
-/**
  * @brief Initialize global configuration
  * @param config_file Path to configuration file
  * @throws std::runtime_error if already initialized
  */
-inline void initialize(const std::string& config_file) {
-    if (global_config != nullptr) {
-        throw std::runtime_error("Configuration already initialized");
-    }
-    global_config = std::make_unique<AppConfig>(config_file);
-}
+void initialize(const std::string& config_file);
 
 /**
  * @brief Get global configuration instance
  * @return Reference to global config
  * @throws std::runtime_error if not initialized
  */
-inline AppConfig& get() {
-    if (global_config == nullptr) {
-        throw std::runtime_error("Configuration not initialized");
-    }
-    return *global_config;
-}
+AppConfig& get();
 
 /**
  * @brief Check if configuration is initialized
  * @return true if initialized
  */
-inline bool is_initialized() {
-    return global_config != nullptr;
-}
+bool is_initialized();
 
 /**
  * @brief Shutdown and cleanup configuration
  */
-inline void shutdown() {
-    global_config.reset();
-}
+void shutdown();
 
 }  // namespace Config
