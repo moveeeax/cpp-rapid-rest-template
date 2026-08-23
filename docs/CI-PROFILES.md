@@ -11,11 +11,31 @@ here was learned the expensive way on downstream forks of this template.
   and `tsan` each get their own VM, so parallelism costs nothing; each pulls
   builder layers from the gha/GHCR caches independently. Serializing them on
   hosted runners only stretches the wall clock.
-- **Cheap jobs stay unconditional.** `openapi-drift` and `gate-selftest`
-  (`scripts/check-selftest.sh` — plants 12 breakages and requires every
-  `check-*` gate to catch and name them; needs helm+yq, ~minutes) run on
-  every push/PR with no `paths:` filter, because a path-skipped required job
-  reports success — the "skipped job goes green" trap.
+- **Heavy jobs self-scope; cheap jobs stay unconditional.** The expensive
+  jobs (`build-and-test`, `clang-tidy`, `sanitizers`, `tsan`,
+  `runtime-smoke`, plus `frontend` and `gate-selftest`) each begin with a
+  `scope` step: the job always STARTS, lists the changed files itself
+  (`gh api .../pulls/N/files` on PRs; `git diff HEAD^..HEAD` with
+  `fetch-depth: 2` on pushes), and if none of its declared input paths are
+  touched it exits green in seconds with an explicit "paths untouched —
+  verified nothing is affected" log line. This is NOT the "skipped job goes
+  green" trap: a workflow-level `paths:` filter makes GitHub skip the
+  required job entirely and report success without running a single
+  instruction, while a self-scoped job actually executed, actually computed
+  the diff, and actually verified its irrelevance — the green check is a
+  real (cheap) verification, and any failure to compute the diff fails OPEN
+  into a full run. Measured motivation: one docs typo used to cost 5 Docker
+  image builds and 30+ CPU-minutes. Every scope list includes
+  `.github/workflows/ci.yml` itself, so edits to the scoping logic can
+  never scope themselves out. The genuinely cheap jobs (`lint-format`,
+  `secret-scan`, `openapi-drift`, `helm-charts`) stay unconditional — they
+  cost seconds and scoping them would buy nothing.
+- **`gate-selftest` is self-scoped + nightly.** Per-PR it runs
+  `scripts/check-selftest.sh` only when the diff touches `scripts/`,
+  `.github/workflows/` or `helm/` (where gate mutations live); the daily
+  unconditional backstop is `.github/workflows/gates-nightly.yml`
+  (cron + `workflow_dispatch`: check-selftest.sh + check-module-deps.sh),
+  so gate rot is caught within a day even when nobody touches the gates.
 - **Three cache layers.** `cache-from` lists `type=gha` plus
   `ghcr.io/<repo>/builder:cache`. The gha cache is evicted aggressively
   (7 days / 10 GB); the GHCR layer survives, EXCEPT after a vcpkg baseline
