@@ -199,10 +199,12 @@ jobs:
         run: ./scripts/check-frontend-nginx-sync.sh
       - name: Check module dependency DAG (src/ include edges)
         run: ./scripts/check-module-deps.sh
+      - name: Check config key sync (src reads vs config jsons, CONFIG.md, helm env lists)
+        run: ./scripts/check-config-sync.sh
 
   gate-selftest:
     runs-on: ubuntu-latest
-    # Proves the seven check-* gates BITE: per gate, copy the subtree it reads,
+    # Proves the eight check-* gates BITE: per gate, copy the subtree it reads,
     # plant a known breakage (counted mutators; a no-op mutation is itself a
     # failure), and require the gate to fail AND name what it found — after
     # first PASSING the untouched copy as a control. A gate only ever run
@@ -258,7 +260,7 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
-      - name: Gate selftest (16 planted breakages must be caught)
+      - name: Gate selftest (18 planted breakages must be caught)
         if: steps.scope.outputs.relevant == 'true'
         run: ./scripts/check-selftest.sh
 

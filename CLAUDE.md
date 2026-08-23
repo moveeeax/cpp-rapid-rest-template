@@ -73,7 +73,17 @@ gates by construction. Hand-rolled versions usually don't.
    curl bootstrap lives in `utils/CurlInit.hpp`). `api/Api.hpp` is included
    only by binary entry points (main.cpp, tests/e2e) — tests include the
    specific controller header they exercise.
-9. **Commits:** conventional commits, no AI-attribution trailers.
+9. **Config key sync** (`scripts/check-config-sync.sh`): every
+   `cfg.get<T>("json.path", "ENV", default)` read in `src/` must have its
+   json path in `config/config.json` AND `config/config.sample.json` (as a
+   `${ENV:-default}` placeholder matching the code default) and its ENV
+   documented in `docs/CONFIG.md`; stale doc rows and helm env lines for
+   envs the code no longer reads also fail. Regex-invisible reads get a
+   commented entry in `docs/config-sync-allowlist.txt` (never a silent
+   skip). NB: `get<std::string>` returns a present-but-empty json value
+   AS-IS — don't add an empty-expanding placeholder for a string key whose
+   code default is non-empty (see `rate_limit.protected_paths` there).
+10. **Commits:** conventional commits, no AI-attribution trailers.
 
 ## Gate sequence — run cheapest-first before pushing
 
@@ -81,10 +91,10 @@ gates by construction. Hand-rolled versions usually don't.
    is major 17, the CI pin; fix: `pip install clang-format==17.0.6`)
 2. `./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
    && ./scripts/check-test-buckets.sh && ./scripts/check-version-sync.sh
-   && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh`
-   — seconds, no build.
+   && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh
+   && ./scripts/check-config-sync.sh` — seconds, no build.
    Touched a `check-*` script? Also run `./scripts/check-selftest.sh` —
-   plants 16 breakages and requires every gate to catch and name them
+   plants 18 breakages and requires every gate to catch and name them
    (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
    `scripts/`, `helm/` or `.github/workflows/`, with a nightly
    unconditional backstop in `.github/workflows/gates-nightly.yml`)
