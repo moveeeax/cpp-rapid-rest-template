@@ -47,7 +47,13 @@ gates by construction. Hand-rolled versions usually don't.
 1. **Route triple-sync:** every `ADD_METHOD_TO` in a controller must also
    appear in `Api::get_endpoints()` (`src/api/Endpoints.hpp`) **and** in
    `docs/openapi.yaml`. `scripts/check-openapi-drift.sh` and
-   `scripts/check-routes-registered.sh` fail CI on any mismatch.
+   `scripts/check-routes-registered.sh` fail CI on any mismatch. Response
+   BODIES are checked too: the e2e bucket validates real responses against
+   the spec's schemas (`tests/e2e/openapi_check.hpp`, subset validator).
+   It reads `tests/e2e/openapi.gen.json` — a committed conversion of
+   `docs/openapi.yaml`; after editing the spec run
+   `./scripts/gen-openapi-json.sh` and commit both, or the e2e test
+   `OpenApiSpec.GenJsonIsFreshAndLoadable` fails on the stale hash stamp.
 2. **API versioning (ADR 0006):** business routes live under `/api/v1`;
    `new-endpoint.sh` rejects unversioned paths. Probe routes (`/healthz`,
    `/ready`, `/health`, `/metrics`) stay unversioned.
