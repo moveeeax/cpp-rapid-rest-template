@@ -168,6 +168,11 @@ methodology and a results template.
   / Profile / Change Password / Change Email / Reset Password / Admin
   Dashboard / Users / User detail / Invite / Roles (CRUD), plus admin
   Jobs (paginated list + DLQ requeue) and Audit-log browsers beyond flask-base.
+- Billing UI for the wallet/PayPal module: user wallet page (packages,
+  custom top-up, ledger history) + PayPal return/cancel pages, and admin
+  billing (packages CRUD, rate/bounds settings, payments list, manual
+  wallet adjustments). No charting dependency — the metrics dashboard is a
+  documented extension point over `GET /api/v1/admin/billing/metrics`.
 - HttpOnly-cookie auth, no JWT in localStorage. Same-origin via Vite
   proxy in dev and nginx in prod — no CORS gymnastics.
 - Lives in `frontend/` (monorepo); builds to its own image, deploys
