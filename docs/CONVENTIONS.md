@@ -193,5 +193,5 @@ The scaffolding scripts are the entry points:
 | Check spec ↔ code drift | `./scripts/check-openapi-drift.sh` |
 | Validate Helm render | `make helm-validate` |
 | Worked CRUD example | `docs/EXAMPLES.md` |
-| Money / ledger / payment-provider reference | `src/billing/Wallet.hpp` (billing module: append-only ledger, idempotent capture/refund, integer-only money; best-effort emails in `src/email/BillingEmails.hpp`) |
+| Money / ledger / payment-provider reference | `src/billing/Wallet.hpp` (billing module: append-only ledger, idempotent capture/refund/spend — spend is reference-keyed via migration 009's partial unique index, no HTTP endpoint (charging is fork domain), integer-only money; best-effort emails in `src/email/BillingEmails.hpp`) |
 | ADRs / architecture decisions | `docs/adr/` |
