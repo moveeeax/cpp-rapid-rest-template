@@ -1,9 +1,19 @@
 # Modularity: architectural review verdict and target design
 
-Status: approved (owner, 2026-08-22). Source: four independent review
-passes (include-graph coupling, process weight, alternative
-architectures, git-history blast radius), run with an explicit mandate
-to challenge the project's own ADRs and conventions.
+Status: EXECUTED — 2026-08-23. Phase 1: #42 (honest loop + Database
+seam), #43 (hub split + module-deps gate). Phase 2: #44 billing, #45
+jobs (email↔jobs header cycle broken), #46 core/middleware — app_core
+STATIC, ~5.9k header lines de-inlined. Phase 3: #47 CI self-scoping +
+nightly gates, #49 utils hubs + Swagger SRI, #50 release.sh + helm-pin
+gating, #51 config-sync gate (first run fixed 78 drifts).
+Routes-from-registry evaluated and rejected (ADR 0007 update). Measured
+after: warm build-and-test ~10.6 min (baseline 17), Core.hpp 243 lines
+/ 3 includers, selftest 18 cases.
+
+Source: four independent review passes (include-graph coupling, process
+weight, alternative architectures, git-history blast radius), run with
+an explicit mandate to challenge the project's own ADRs and
+conventions.
 
 ## Diagnosis
 
