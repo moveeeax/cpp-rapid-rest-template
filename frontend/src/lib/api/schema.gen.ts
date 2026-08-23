@@ -70,7 +70,17 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "alive";
+                            /**
+                             * Format: int64
+                             * @description Epoch seconds
+                             */
+                            timestamp: number;
+                        };
+                    };
                 };
             };
         };
@@ -198,7 +208,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["RegisterResponse"];
+                    };
                 };
                 /** @description Validation failed */
                 400: {
@@ -213,6 +225,15 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+                /** @description Idempotency-Key conflict — same key, different body (idempotency middleware) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
             };
         };
@@ -264,7 +285,18 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Body content type is not application/json (content-type middleware — applies to every JSON API endpoint) */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
             };
         };
@@ -344,7 +376,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
             };
         };
@@ -514,7 +548,7 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description If the email is registered */
+                /** @description If the email is registered, a reset link is on its way */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -568,7 +602,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
             };
         };
@@ -930,7 +966,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
             };
         };
@@ -1447,11 +1485,11 @@ export interface paths {
                 query?: {
                     limit?: number;
                     offset?: number;
-                    /** @description Exact action filter */
+                    /** @description Exact action filter, e.g. user.create */
                     action?: string;
                     /** @description Filter by acting principal subject */
                     actor_id?: string;
-                    /** @description Filter by target kind */
+                    /** @description Filter by target kind, e.g. user / role */
                     target_type?: string;
                     /** @description created_at lower bound */
                     from?: string;
@@ -1518,6 +1556,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["JobListResponse"];
+                    };
+                };
+                /** @description Not authenticated (auth middleware — the route is not in api.public_paths) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not an admin */
@@ -1804,7 +1851,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["PostDetailResponse"];
+                    };
                 };
                 /** @description Validation failed */
                 400: {
@@ -2376,6 +2425,15 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+                /** @description Not authenticated (auth middleware — multipart passes the content-type gate but still needs a session) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
                 /** @description Not an admin */
                 403: {
@@ -3361,12 +3419,15 @@ export interface components {
     schemas: {
         Error: {
             error: string;
+            /** @description HTTP status code, duplicated into the body */
+            status: number;
             message?: string;
             code?: string;
         };
         ValidationError: {
             /** @enum {string} */
             error: "validation_failed";
+            status: number;
             errors: {
                 field: string;
                 code: string;
@@ -3489,6 +3550,29 @@ export interface components {
         };
         MessageResponse: {
             message?: string;
+        };
+        RegisterResponse: {
+            user: components["schemas"]["User"];
+            message: string;
+        };
+        Post: {
+            /** Format: uuid */
+            id: string;
+            slug: string;
+            title: string;
+            summary: string;
+            body: string;
+            /** @enum {string} */
+            status: "draft" | "published";
+            topic: string;
+            tags: string[];
+            /** Format: date-time */
+            published_at: string | null;
+            created_at: string;
+            updated_at: string;
+        };
+        PostDetailResponse: {
+            data: components["schemas"]["Post"];
         };
         BillingPackage: {
             /** Format: uuid */
