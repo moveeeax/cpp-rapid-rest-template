@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787458401305,
+  "lastUpdate": 1787458404649,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -1635,6 +1635,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "idle RSS",
             "value": 4.2,
+            "unit": "MB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "76e614adf3d89fc4561e3a6570f28ca71937ba66",
+          "message": "arch(phase2): core and middleware bodies de-inlined into app_core (#46)\n\n* arch(phase2): core and middleware bodies de-inlined into app_core\n\nThird and final phase-2 pair, same shape as billing (934f753) and jobs\n(f355b3a): non-template bodies of core/Core (Application init/shutdown\norchestration, config validation, metric registrars, health registry,\nsingleton) and api/Middleware (the full advice chain, short_circuit,\naccess log + HTTP metrics, docs endpoints) moved to paired .cpp files the\napp_core GLOB picks up with no CMake edit. Behavior unchanged.\n\nHeaders: 1646 -> 353 lines (Core.hpp 867 -> 243, Middleware.hpp\n779 -> 110); 1470 lines of bodies now compile once in app_core (Core.cpp\n750, Middleware.cpp 720) instead of per-TU.\n\nIncludes that left the headers: Core.hpp dropped its 13 subsystem\nincludes (database/pqxx, cache/redis++, jobs, messaging/Kafka,\nbilling/PayPal, email, storage, security x3, tasks,\nobservability/OTel+prometheus, Pg, Strings, version.hpp, direct spdlog)\n— it now carries only std containers, core/Modules.hpp and\nutils/Config.hpp; Middleware.hpp dropped the OTel SDK, spdlog,\nRequestUtils and the security/observability/utils module headers — only\ndrogon/HttpRequest.h + HttpResponse.h survive for the short_circuit\nsignature.\n\nFile-local state moved behind anonymous namespaces in the .cpp files:\nthe global_app singleton (global_jobs pattern), the HTTP metric families\nand duration buckets, the HSTS registration-time settings, and the\ndetail/access_log_detail helpers (no external consumers — verified by\ngrep). check-module-deps.sh now allowlists core/Core.cpp as Core.hpp's\nown body file (rule 2, selftest still 14/14); docs/module-deps.txt edges\nare unchanged — Core.cpp keeps the same core -> * edges the header had,\nMiddleware.cpp the api -> * ones. Consumers got their own includes for\nwhat they use: main.cpp spdlog+nlohmann, tests/test_helpers.hpp\nutils/Retry.hpp.\n\n* fix(phase2): test_billing_metrics lost transitive PayPalClient include via slim Core.hpp",
+          "timestamp": "2026-08-22T19:50:42Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/76e614adf3d89fc4561e3a6570f28ca71937ba66"
+        },
+        "date": 1787458403258,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "healthz p50",
+            "value": 3,
+            "unit": "ms"
+          },
+          {
+            "name": "healthz p99",
+            "value": 12.18,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p50",
+            "value": 15.26,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p99",
+            "value": 31.02,
+            "unit": "ms"
+          },
+          {
+            "name": "runtime image size",
+            "value": 108.5,
+            "unit": "MB"
+          },
+          {
+            "name": "cold start to /ready",
+            "value": 774,
+            "unit": "ms"
+          },
+          {
+            "name": "idle RSS",
+            "value": 4.3,
             "unit": "MB"
           }
         ]
