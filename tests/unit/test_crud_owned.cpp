@@ -69,7 +69,13 @@ protected:
 
 struct OwnedNote {
     std::string id;
-    static OwnedNote from_row(const pqxx::row& /*row*/) { return {}; }
+    // Templated like every shipped domain struct: pqxx result iteration
+    // yields row_ref, not row& — a concrete `const pqxx::row&` signature
+    // fails to compile inside list_owned (this test proved it live).
+    template <class Row>
+    static OwnedNote from_row(const Row& /*row*/) {
+        return {};
+    }
 };
 
 class OwnedNoteRepository : public Repositories::CrudBase<OwnedNoteRepository, OwnedNote, std::string> {
