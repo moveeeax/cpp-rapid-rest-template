@@ -6,6 +6,11 @@ carries `org_id NOT NULL`, every read is scoped by it, and a "half-disabled"
 mode would be an illusion of isolation. If your fork needs tenants, run the
 script once and own the generated code; if it doesn't, don't install it.
 
+A fresh fork that already knows it needs tenants can install the kit as part
+of bootstrap: `./scripts/init-project.sh --with-orgs …` runs `add-orgs.sh`
+right after the rename (the patch anchors are name-independent, so before /
+after the rename makes no difference; it composes with `--minimal` too).
+
 What lands: `src/tenancy/*` (domain, repositories, `OrgContext`,
 `OrgCrudBase`, permission matrix), `src/api/OrganizationsController.hpp`
 (org CRUD, member management, `/switch`), org guards in `src/api/Guards.hpp`,

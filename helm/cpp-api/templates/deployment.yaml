@@ -193,9 +193,11 @@ spec:
               value: {{ .Values.jobs.resultTtl | quote }}
             - name: JOBS_MAX_RETRIES
               value: {{ .Values.jobs.maxRetries | quote }}
+            # init-project:content:start
             # Content module (posts/uploads/sitemap) — api-side only
             - name: CONTENT_ENABLED
               value: {{ .Values.content.enabled | quote }}
+            # init-project:content:end
             # billing module — master switch plus the non-secret
             # billing.paypal.* config, matching how the app reads them
             # (see src/billing/PayPalClient.hpp). The client secret is the
@@ -350,6 +352,7 @@ spec:
                   name: {{ include "cpp-api.fullname" . }}
                   key: mail-smtp-password
             {{- end }}
+            # init-project:content:start
             {{- if .Values.storage.s3.secretKey }}
             - name: S3_SECRET_KEY
               valueFrom:
@@ -357,6 +360,7 @@ spec:
                   name: {{ include "cpp-api.fullname" . }}
                   key: s3-secret-key
             {{- end }}
+            # init-project:content:end
             - name: MAIL_SMTP_USE_TLS
               value: {{ .Values.mail.smtpUseTls | quote }}
             - name: MAIL_FROM
@@ -381,8 +385,10 @@ spec:
               mountPath: /app/logs
             - name: tmp
               mountPath: /tmp
+            # init-project:content:start
             - name: uploads
               mountPath: /app/uploads
+            # init-project:content:end
       volumes:
         - name: config
           configMap:
@@ -391,8 +397,10 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        # init-project:content:start
         - name: uploads
           emptyDir: {}
+        # init-project:content:end
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

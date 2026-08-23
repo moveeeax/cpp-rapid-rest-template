@@ -224,6 +224,10 @@ make warm-cache    # optional: prime the vcpkg dependency layer (~30 min -> ~3)
 
 # Rename template identity (project name, image registry, helm charts, etc.)
 ./scripts/init-project.sh my-service docker.io/myorg
+#   --no-demo    also strip the flask-base reference material + README demo block
+#   --minimal    --no-demo + remove the content module (posts/uploads/sitemap
+#                — the worked example); all sync gates stay green (REMOVING-THE-DEMO.md)
+#   --with-orgs  install the multi-tenancy starter kit after the rename (docs/ORGS.md)
 
 # Build + run Postgres + Redis + the API, wait for ready, hit /healthz
 make quickstart

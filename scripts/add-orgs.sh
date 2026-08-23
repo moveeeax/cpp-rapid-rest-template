@@ -23,7 +23,7 @@
 # Patches (anchor-checked, verified after insertion):
 #   src/api/Guards.hpp          API_REQUIRE_ORG / API_REQUIRE_ORG_PERM macros
 #   src/api/Api.hpp             #include of the controller
-#   src/api/AuthController.hpp  org claim mint (login/refresh) + org_role in /auth/me
+#   src/api/AuthController.cpp  org claim mint (login/refresh) + org_role in /auth/me
 #   src/api/Endpoints.hpp       the 8 org routes (triple-sync)
 #   docs/openapi.yaml           the 8 org routes (triple-sync)
 #
@@ -52,7 +52,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TENANCY="$ROOT/src/tenancy"
 GUARDS="$ROOT/src/api/Guards.hpp"
 API_HPP="$ROOT/src/api/Api.hpp"
-AUTH_CTRL="$ROOT/src/api/AuthController.hpp"
+# The de-inlining pass (ADR 0003 as amended; PR #46) moved AuthController's
+# bodies into the .cpp — the org-claim mint and /auth/me patch sites live
+# there now, at method-body (4-space) indentation.
+AUTH_CTRL="$ROOT/src/api/AuthController.cpp"
 AUTH_HPP="$ROOT/src/security/Auth.hpp"
 ENDPOINTS_HPP="$ROOT/src/api/Endpoints.hpp"
 OPENAPI="$ROOT/docs/openapi.yaml"
@@ -1337,7 +1340,7 @@ if ! grep -q '#include "api/OrganizationsController.hpp"' "$API_HPP"; then
     echo "==> Patched $API_HPP (#include OrganizationsController)"
 fi
 
-# ── 11. Patch src/api/AuthController.hpp — org claim + org_role in /me ───
+# ── 11. Patch src/api/AuthController.cpp — org claim + org_role in /me ───
 grep -q "tenancy/OrgContext.hpp" "$AUTH_CTRL" && die "$AUTH_CTRL already references tenancy — partial install?"
 
 cat >"$TMP/authctrl_includes.frag" <<'EOF'
@@ -1350,42 +1353,42 @@ insert_after "$AUTH_CTRL" '#include "security/SessionStore.hpp"' "$TMP/authctrl_
 # organization. Anchored on the issuer line that closes the access-claims
 # build; AuthController has exactly one (switchOrg's copy lives in
 # OrganizationsController).
-[[ "$(grep -cxF '        if (!cfg.jwt_issuer.empty())' "$AUTH_CTRL")" == "1" ]] ||
+[[ "$(grep -cxF '    if (!cfg.jwt_issuer.empty())' "$AUTH_CTRL")" == "1" ]] ||
     die "expected exactly one issuer anchor line in $AUTH_CTRL — patch mint_session by hand (see docs/ORGS.md)"
 cat >"$TMP/authctrl_mint.frag" <<'EOF'
-        // Org claim: set ONLY when the user belongs to exactly one
-        // organization — an unambiguous default. Zero memberships means
-        // nothing to default to; more than one means the client must pick
-        // explicitly via POST /orgs/{id}/switch. This same rule runs on BOTH
-        // login and refresh (mint_session is the sole minting path for
-        // both), so the claim is recomputed from current membership state
-        // every time — it self-heals a stale claim (the user's one org was
-        // deleted, a second org was added) instead of carrying forward a
-        // value that may no longer be valid. verify_jwt() never requires
-        // this claim, so tokens minted before add-orgs keep working.
-        Tenancy::OrgMemberRepository org_members;
-        auto memberships = org_members.list_for_user(user.id);
-        if (memberships.size() == 1) {
-            access_claims["org"] = memberships.front().org_id;
-        }
+    // Org claim: set ONLY when the user belongs to exactly one
+    // organization — an unambiguous default. Zero memberships means
+    // nothing to default to; more than one means the client must pick
+    // explicitly via POST /orgs/{id}/switch. This same rule runs on BOTH
+    // login and refresh (mint_session is the sole minting path for
+    // both), so the claim is recomputed from current membership state
+    // every time — it self-heals a stale claim (the user's one org was
+    // deleted, a second org was added) instead of carrying forward a
+    // value that may no longer be valid. verify_jwt() never requires
+    // this claim, so tokens minted before add-orgs keep working.
+    Tenancy::OrgMemberRepository org_members;
+    auto memberships = org_members.list_for_user(user.id);
+    if (memberships.size() == 1) {
+        access_claims["org"] = memberships.front().org_id;
+    }
 EOF
-insert_before "$AUTH_CTRL" '        if (!cfg.jwt_issuer.empty())' "$TMP/authctrl_mint.frag"
+insert_before "$AUTH_CTRL" '    if (!cfg.jwt_issuer.empty())' "$TMP/authctrl_mint.frag"
 grep -q 'access_claims\["org"\]' "$AUTH_CTRL" || die "failed to patch mint_session in $AUTH_CTRL"
 
 # /auth/me: annotate with the TENANT role (org_members.role), not the system
 # role — the SPA needs it to hide org-scoped sections. Replaces the plain
 # callback line; null when the token has no org claim or the membership was
 # revoked (same fail-closed as org_context_of).
-ME_ANCHOR='        callback(Response::ok({{"user", *user}}));'
+ME_ANCHOR='    callback(Response::ok({{"user", *user}}));'
 [[ "$(grep -cxF "$ME_ANCHOR" "$AUTH_CTRL")" == "1" ]] ||
     die "expected exactly one '/auth/me' response line in $AUTH_CTRL — patch me() by hand (see docs/ORGS.md)"
 cat >"$TMP/authctrl_me.frag" <<'EOF'
-        // Tenant role (org_members.role), not the system role: the SPA needs
-        // it to hide org-scoped sections. null when the token has no org
-        // claim or the membership was revoked — the same fail-closed rule as
-        // Tenancy::org_context_of.
-        auto org_ctx = Tenancy::org_context_of(req);
-        callback(Response::ok({{"user", *user}, {"org_role", org_ctx ? json(org_ctx->role) : json(nullptr)}}));
+    // Tenant role (org_members.role), not the system role: the SPA needs
+    // it to hide org-scoped sections. null when the token has no org
+    // claim or the membership was revoked — the same fail-closed rule as
+    // Tenancy::org_context_of.
+    auto org_ctx = Tenancy::org_context_of(req);
+    callback(Response::ok({{"user", *user}, {"org_role", org_ctx ? json(org_ctx->role) : json(nullptr)}}));
 EOF
 awk -v anchor="$ME_ANCHOR" -v fragment="$TMP/authctrl_me.frag" '
     $0 == anchor && !done {
@@ -1594,6 +1597,27 @@ if ! grep -q "^  /api/v1/orgs:" "$OPENAPI"; then
         '409': { description: last_owner — cannot remove the last owner }
 EOF
     echo "==> Appended OpenAPI block to $OPENAPI"
+fi
+
+# ── 14b. docs/module-deps.txt — declare the new tenancy edges ────────────
+# The module-DAG gate (scripts/check-module-deps.sh, added after the first
+# version of this kit) fails any cross-directory #include whose edge is not
+# declared. The kit introduces api -> tenancy plus tenancy's own
+# dependencies; insert each at its sorted position. Skipped edge-by-edge if
+# already present, and entirely on a fork that predates the gate.
+DEPS="$ROOT/docs/module-deps.txt"
+if [[ -f "$DEPS" ]]; then
+    add_edge_before() {
+        local edge="$1" anchor="$2"
+        grep -qxF "$edge" "$DEPS" && return 0
+        printf '%s\n' "$edge" >"$TMP/edge.frag"
+        insert_before "$DEPS" "$anchor" "$TMP/edge.frag"
+    }
+    add_edge_before 'api -> tenancy' 'api -> utils'
+    add_edge_before 'tenancy -> database' 'webhooks -> jobs'
+    add_edge_before 'tenancy -> repositories' 'webhooks -> jobs'
+    add_edge_before 'tenancy -> security' 'webhooks -> jobs'
+    echo "==> Declared tenancy edges in $DEPS"
 fi
 
 # ── 15. Tests ────────────────────────────────────────────────────────────

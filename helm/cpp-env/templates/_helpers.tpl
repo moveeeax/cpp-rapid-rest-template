@@ -40,7 +40,7 @@ metadata:
            normal photo at the EDGE — before the frontend nginx (6m) or the
            app's 5 MB upload cap ever see it. Found live: admin media upload
            "Upload failed" on the demo for any image over 1 MB. Keep the
-           chain in sync: UploadController cap (5 MB) < frontend nginx 6m
+           chain in sync: app upload cap (5 MB) < frontend nginx 6m
            <= this. */}}
     nginx.ingress.kubernetes.io/proxy-body-size: {{ $ctx.Values.ingress.proxyBodySize | default "6m" | quote }}
     {{- if $ctx.Values.ingress.externalDnsTarget }}

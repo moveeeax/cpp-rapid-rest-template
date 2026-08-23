@@ -277,6 +277,7 @@ TEST_F(ConfigTest, RequireReturnsEnvOverValue) {
     EXPECT_EQ(config.require<std::string>("test.value", "CFG_REQUIRED"), "hello");
 }
 
+// init-project:content:start
 // ── Content module master switch (posts/uploads/sitemap) ──────────────────
 
 TEST_F(ConfigTest, ContentDisabledByDefault) {
@@ -285,6 +286,7 @@ TEST_F(ConfigTest, ContentDisabledByDefault) {
     Config::initialize(test_config_file);
     EXPECT_FALSE(Config::get().get<bool>("content.enabled", "CONTENT_ENABLED", false));
 }
+// init-project:content:end
 
 // ── M3: string-shaped leaves coerce to the requested type ───────────────────
 // substitute_env_placeholders writes every ${VAR:-default} expansion back as a
