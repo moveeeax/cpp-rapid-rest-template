@@ -17,6 +17,8 @@
 #include <vector>
 
 #include <drogon/drogon.h>
+#include <opentelemetry/nostd/span.h>
+#include <opentelemetry/trace/tracer.h>
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>

@@ -29,6 +29,7 @@
 #include "api/AuthController.hpp"
 #include "database/Database.hpp"
 #include "repositories/UserRepository.hpp"
+#include "security/Password.hpp"
 #include "test_helpers.hpp"
 
 using json = nlohmann::json;

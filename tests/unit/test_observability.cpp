@@ -1,6 +1,8 @@
 #include <filesystem>
+#include <stdexcept>
 
 #include <gtest/gtest.h>
+#include <opentelemetry/trace/tracer.h>
 
 #include "observability/Observability.hpp"
 #include "test_helpers.hpp"

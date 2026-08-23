@@ -2,20 +2,26 @@
  * @file HealthController.hpp
  * @brief Health check and root endpoint controllers
  * @details Kubernetes probes (/healthz, /ready, /health) and endpoint discovery (/)
+ *
+ * Declarations only — the handler bodies live in HealthController.cpp
+ * (compiled once into app_core; ADR 0003 as amended 2026-08-22). The route
+ * macros (ADD_METHOD_TO) must stay in this header: Drogon's METHOD_LIST
+ * registration is part of the class definition, and
+ * scripts/check-routes-registered.sh greps the src/api headers for them.
  */
 
 #pragma once
 
-#include <ctime>
+#include <functional>
+#include <string>
 
 #include <drogon/HttpController.h>
-#include <drogon/drogon.h>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
-#include "api/Endpoints.hpp"
+// kept here because check-module-deps.sh's CORE_HPP_ALLOWED lists only this header; the body file receives it
+// transitively.
 #include "core/Core.hpp"
-#include "utils/ErrorResponse.hpp"
 
 namespace Api {
 
@@ -24,9 +30,7 @@ using json = nlohmann::json;
 
 /// Version string for status payloads: the Core-reported version once
 /// initialized, "unknown" before that (shared by /health and /).
-inline std::string version_or_unknown() {
-    return Core::is_initialized() ? Core::get().version() : std::string("unknown");
-}
+std::string version_or_unknown();
 
 /**
  * @brief Health check controller
@@ -40,56 +44,11 @@ public:
     ADD_METHOD_TO(HealthController::health, "/health", Get);
     METHOD_LIST_END
 
-    void liveness(const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& callback) {
-        callback(Response::ok({{"status", "alive"}, {"timestamp", std::time(nullptr)}}));
-    }
+    void liveness(const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& callback);
 
-    void readiness(const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& callback) {
-        // During graceful shutdown we must report NotReady so kube-proxy
-        // removes us from the Service backends before Drogon stops accepting.
-        if (Core::is_shutting_down()) {
-            auto resp = Response::ok({{"status", "draining"}, {"timestamp", std::time(nullptr)}});
-            resp->setStatusCode(k503ServiceUnavailable);
-            callback(resp);
-            return;
-        }
-        bool ready = Core::is_initialized() && Core::health_check();
-        auto resp = Response::ok({{"status", ready ? "ready" : "not_ready"}, {"timestamp", std::time(nullptr)}});
-        resp->setStatusCode(ready ? k200OK : k503ServiceUnavailable);
-        callback(resp);
-    }
+    void readiness(const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& callback);
 
-    void health(const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& callback) {
-        // Pull every component registered via Core::register_health_check —
-        // services that add their own modules no longer have to hard-code
-        // lookups in this method.
-        json components = json::object();
-        bool critical_ok = true;         // a CRITICAL component is down → 503 unhealthy
-        bool any_degraded_down = false;  // only OPTIONAL deps down → 200 degraded
-        if (Core::is_initialized()) {
-            for (const auto& c : Core::get().health_report()) {
-                components[c.name] = {{"initialized", c.initialized}, {"healthy", c.healthy}, {"critical", c.critical}};
-                if (!c.healthy) {
-                    if (c.critical)
-                        critical_ok = false;
-                    else
-                        any_degraded_down = true;
-                }
-            }
-        } else {
-            critical_ok = false;
-        }
-        // A degraded optional dependency (SMTP/storage/Kafka) reports "degraded"
-        // but stays 200 — only a critical-component failure returns 503, matching
-        // what /ready (Core::health_check) gates on.
-        const char* status = !critical_ok ? "unhealthy" : (any_degraded_down ? "degraded" : "healthy");
-        auto resp = Response::ok({{"status", status},
-                                  {"version", version_or_unknown()},
-                                  {"timestamp", std::time(nullptr)},
-                                  {"components", components}});
-        resp->setStatusCode(critical_ok ? k200OK : k503ServiceUnavailable);
-        callback(resp);
-    }
+    void health(const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& callback);
 };
 
 /**
@@ -101,14 +60,7 @@ public:
     ADD_METHOD_TO(RootController::getRoot, "/", Get);
     METHOD_LIST_END
 
-    void getRoot(const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& callback) {
-        json endpoints_json = json::array();
-        for (const auto& ep : get_endpoints()) {
-            endpoints_json.push_back({{"method", ep.method}, {"path", ep.path}, {"description", ep.description}});
-        }
-        callback(Response::ok(
-            {{"message", "C++ API Template"}, {"version", version_or_unknown()}, {"endpoints", endpoints_json}}));
-    }
+    void getRoot(const HttpRequestPtr&, std::function<void(const HttpResponsePtr&)>&& callback);
 };
 
 }  // namespace Api
