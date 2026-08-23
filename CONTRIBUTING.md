@@ -108,9 +108,27 @@ When you change a CI gate, update the gate list in `CLAUDE.md` in the same PR.
 
 ## Release
 
-Semver, tagged on `master`. A tag that matches `v*.*.*` triggers
-`.github/workflows/release.yml`, which builds multi-arch images for the
-app, worker and frontend targets, pushes them to `ghcr.io/<owner>/<repo>`
-(and `-worker` / `-frontend`), and publishes a GitHub Release seeded from
-auto-generated commit notes. Update `CHANGELOG.md` under `## [Unreleased]`
-before tagging.
+Semver, tagged on `master`. The release version lives in more places than
+one edit can reach by hand (that is how three releases shipped with a stale
+`project(VERSION …)`), so use the script:
+
+1. In `CHANGELOG.md`, retitle `## [Unreleased]` to `## [<ver>] — YYYY-MM-DD`
+   and add a fresh empty `## [Unreleased]` above it. The content stays
+   human-written.
+2. `./scripts/release.sh <ver>` — validates semver + monotonicity, then bumps
+   every remaining version point in one command: `CMakeLists.txt
+   project(VERSION …)`, the 9 image-tag pins in
+   `helm/cpp-env/values{,-demo,-stage}.yaml`, and the 4 `Chart.yaml`
+   `appVersion` fields. It re-runs `scripts/check-version-sync.sh` (which
+   gates all of those in CI) and prints the diff. It commits nothing.
+3. Commit changelog + bumps as ONE commit:
+   `chore(release): <ver> — <one-line summary>`.
+4. After it lands on `master`, `git tag v<ver> && git push origin v<ver>`.
+   A tag matching `v*.*.*` triggers `.github/workflows/release.yml`, which
+   builds the app, worker and frontend images, pushes them to
+   `ghcr.io/<owner>/<repo>` (and `-worker` / `-frontend`) with the
+   **unprefixed** version as the tag, and publishes a GitHub Release seeded
+   from auto-generated commit notes.
+
+`vcpkg.json`'s `version` is deliberately NOT part of a release — the
+Dockerfile keys the dependency-install layer on that manifest.

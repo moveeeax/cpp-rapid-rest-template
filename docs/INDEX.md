@@ -102,14 +102,15 @@ question instead of grepping the tree.
 | `check-openapi-drift.sh` | Verify `Api::get_endpoints()` (src/api/Endpoints.hpp) ↔ `docs/openapi.yaml` (method, path) |
 | `check-routes-registered.sh` | Verify every controller ADD_METHOD_TO route is in `Api::get_endpoints()` (symmetric to the OpenAPI drift check) |
 | `check-test-buckets.sh` | Verify test suites sit in the right bucket — classified by DIRECTORY, fails on a suite-name clash across unit/integration |
-| `check-version-sync.sh` | Verify `project(VERSION …)` in CMakeLists.txt matches the newest released CHANGELOG heading |
+| `check-version-sync.sh` | Verify `project(VERSION …)` in CMakeLists.txt, the 9 helm image-tag pins (`helm/cpp-env/values{,-demo,-stage}.yaml`) and the 4 `Chart.yaml` `appVersion` fields all match the newest released CHANGELOG heading (`[Unreleased]` on top stays green) |
+| `release.sh` | Bump every version point of a release in one command (CMakeLists + 9 helm tag pins + 4 appVersions) after the human retitles the CHANGELOG heading; verifies with check-version-sync.sh, commits nothing |
 | `check-frontend-nginx-sync.sh` | Verify `frontend/nginx.conf` and the helm cpp-frontend ConfigMap agree on the proxied backend routes |
 | `check-module-deps.sh` | Verify every cross-directory `#include` in `src/` is an edge declared in `docs/module-deps.txt`; hard-forbids `utils -> *`, non-entry-point includes of `core/Core.hpp`, and `webhooks -> email` |
 | `check-helm-render.sh` | Render the cpp-env umbrella with CI values and assert deploy-path invariants (ports, hosts, empty credential defaults) |
 | `check-artifact.py` | Content + leaked-template-syntax gate over ONE rendered artifact's extracted text (opt-in, for document-rendering forks — see docs/RENDER-GATE.md) |
 | `render-artifacts.sh` | Loop for the opt-in artifact gate: render every `templates/render/*/fixtures/*.json` via `RENDER_CMD`/`EXTRACT_CMD`, then gate with `check-artifact.py`; zero fixtures = failure |
 | `check-artifact-selftest.sh` | Mandatory selftest for the artifact gate: healthy example (incl. hostile data fixture) must PASS, two counted mutations must be caught and named |
-| `check-selftest.sh` | Prove all seven `check-*` gates bite: plant 14 known breakages in scratch copies, require each gate to fail AND name it (control-pass first, counted mutators, a no-op mutation is itself a failure; needs helm+yq) |
+| `check-selftest.sh` | Prove all seven `check-*` gates bite: plant 16 known breakages in scratch copies, require each gate to fail AND name it (control-pass first, counted mutators, a no-op mutation is itself a failure; needs helm+yq) |
 | `prod-check.sh` | Pre-deploy assertions on a production config (auth, secrets, TLS, fail-closed) |
 | `lint-openapi.sh` | Spectral lint with project ruleset |
 | `make-jwt.sh` | Mint a dev HS256 JWT (no Python/Node deps) |
