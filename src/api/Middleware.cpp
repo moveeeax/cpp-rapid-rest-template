@@ -32,6 +32,7 @@
 #include "api/RequestUtils.hpp"
 #include "observability/Observability.hpp"
 #include "observability/Trace.hpp"
+#include "observability/TraceOtel.hpp"
 #include "security/ApiKeys.hpp"
 #include "security/Auth.hpp"
 #include "security/Csrf.hpp"

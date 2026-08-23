@@ -344,6 +344,19 @@ if(E2E_SOURCES)
     set_tests_properties(e2e_bucket PROPERTIES LABELS "e2e")
 endif()
 
+# ── libFuzzer harnesses (opt-in; Clang only) ────────────────────────────────
+# OFF by default and completely inert when OFF — the normal (GCC) build is
+# untouched. tests/fuzz/CMakeLists.txt hard-errors on a non-Clang compiler,
+# and its normal entry point is a STANDALONE configure into build-fuzz that
+# needs no vcpkg at all (the harnesses compile the parser TUs directly
+# instead of linking app_core) — see the comment there and docs/TESTING.md,
+# "Fuzzing". This option exists for a vcpkg-under-Clang tree that wants the
+# fuzzers inside the main build graph.
+option(ENABLE_FUZZERS "Build the libFuzzer harnesses in tests/fuzz (requires Clang)" OFF)
+if(ENABLE_FUZZERS)
+    add_subdirectory(tests/fuzz)
+endif()
+
 # Installation
 install(TARGETS ${PROJECT_NAME} ${PROJECT_NAME}_worker
     RUNTIME DESTINATION bin

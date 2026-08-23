@@ -132,6 +132,9 @@ all three images keyless with cosign by digest and attests the SBOMs
 automerged — bumps need both sha384 SRI hashes re-pinned by hand, recipe in
 the comment at the pin); the nightly `swagger-sri-guard` job in
 gates-nightly.yml re-downloads the pinned files and fails on pin/hash drift.
+`fuzz-nightly.yml` runs libFuzzer over the byte-facing parsers
+(`tests/fuzz/`, standalone Clang build — no vcpkg/app_core; keep those
+parser TUs std-only, see docs/TESTING.md "Fuzzing").
 
 An opt-in rendered-artifact gate for forks that render documents ships as
 `scripts/check-artifact.py` + `scripts/render-artifacts.sh` + a mandatory

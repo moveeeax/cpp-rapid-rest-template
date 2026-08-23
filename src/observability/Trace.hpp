@@ -19,6 +19,12 @@
  *          Bodies (the parser, hex/random helpers and the thread-local
  *          ambient traceparent) live in Trace.cpp (compiled once into
  *          app_core; ADR 0003 as amended 2026-08-22).
+ *
+ *          This header (and Trace.cpp) is deliberately std-only — the one
+ *          OpenTelemetry-coupled helper (to_remote_span_context) lives in
+ *          TraceOtel.hpp/.cpp so the parser can be compiled standalone by
+ *          the libFuzzer harness in tests/fuzz (fuzz_traceparent) without
+ *          the vcpkg dependency world. Keep new OTel types out of here.
  */
 
 #pragma once
@@ -26,8 +32,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-
-#include <opentelemetry/trace/span_context.h>
 
 namespace Observability::Trace {
 
@@ -63,12 +67,8 @@ TraceContext generate_context();
  */
 TraceContext extract_or_generate(std::string_view traceparent_header);
 
-/**
- * @brief Build a remote OTel SpanContext from a parsed W3C traceparent, so
- *        our server span JOINS the caller's distributed trace instead of
- *        starting an unrelated root.
- */
-std::optional<opentelemetry::trace::SpanContext> to_remote_span_context(const TraceContext& t);
+// to_remote_span_context (TraceContext -> remote OTel SpanContext) lives in
+// TraceOtel.hpp — it is the only OTel-coupled piece of this module.
 
 // ---------------------------------------------------------------------------
 // Ambient "current request" traceparent.
