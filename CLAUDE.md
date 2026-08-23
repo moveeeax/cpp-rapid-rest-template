@@ -20,9 +20,17 @@ map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
   wiring): `./scripts/new-module.sh <name>`
 - Migration: `make new-migration SLUG=<slug>`
 - React page: `./scripts/new-react-page.sh`
-- Release: `./scripts/release.sh <ver>` — after the human retitles the
-  CHANGELOG `[Unreleased]` heading, bumps every other version point in one
-  command (CMakeLists + 9 helm tag pins + 4 Chart.yaml appVersions +
+- Changelog entry: drop a fragment `changelog.d/<topic>.<type>.md` (type ∈
+  added|changed|fixed|removed|security; bullet text WITHOUT the leading
+  `- `, format: `changelog.d/README.md`) — parallel-safe, two PRs never
+  conflict; editing `[Unreleased]` directly stays legal.
+  `./scripts/assemble-changelog.sh --check` gates fragment FORMAT in CI
+  (fragments themselves are optional).
+- Release: `./scripts/release.sh <ver>` — folds `changelog.d/` fragments
+  into `[Unreleased]` (assemble-changelog.sh), retitles it to
+  `## [<ver>] — date` with a fresh empty `[Unreleased]` on top (a heading
+  retitled by hand is accepted too), then bumps every other version point
+  in one command (CMakeLists + 9 helm tag pins + 4 Chart.yaml appVersions +
   `.template-version`); commits nothing (CONTRIBUTING.md "Release")
 - Fork→template sync: `./scripts/sync-upstream.sh` — run IN a fork; pulls
   template fixes by three-way patching between release tarballs (base =
@@ -98,9 +106,11 @@ gates by construction. Hand-rolled versions usually don't.
 2. `./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
    && ./scripts/check-test-buckets.sh && ./scripts/check-version-sync.sh
    && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh
-   && ./scripts/check-config-sync.sh` — seconds, no build.
-   Touched a `check-*` script? Also run `./scripts/check-selftest.sh` —
-   plants 19 breakages and requires every gate to catch and name them
+   && ./scripts/check-config-sync.sh && ./scripts/assemble-changelog.sh --check`
+   — seconds, no build.
+   Touched a `check-*` script (or assemble-changelog.sh)? Also run
+   `./scripts/check-selftest.sh` —
+   plants 20 breakages and requires every gate to catch and name them
    (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
    `scripts/`, `helm/` or `.github/workflows/`, with a nightly
    unconditional backstop in `.github/workflows/gates-nightly.yml`)

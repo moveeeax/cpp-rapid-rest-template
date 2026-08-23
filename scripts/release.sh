@@ -8,9 +8,13 @@
 # leaves the commit to the human.
 #
 # What a release touches:
-#   human-written (this script only VERIFIES it):
-#     CHANGELOG.md                     '## [<version>] — YYYY-MM-DD' heading on
-#                                      top (promote the [Unreleased] content)
+#   human-written CONTENT, script-driven mechanics:
+#     CHANGELOG.md                     changelog.d/ fragments are folded into
+#                                      '## [Unreleased]' (assemble-changelog.sh)
+#                                      and the section is retitled to
+#                                      '## [<version>] — YYYY-MM-DD' with a
+#                                      fresh empty [Unreleased] kept on top; a
+#                                      heading retitled by hand is accepted too
 #   bumped by this script:
 #     CMakeLists.txt                   project(VERSION ...) — the baked version
 #                                      Core::version() / GET /health report
@@ -73,21 +77,47 @@ cur, new = (tuple(int(p) for p in a.split(".")) for a in sys.argv[1:3])
 sys.exit(0 if new > cur else 1)
 PY
 
-# --- validate: the CHANGELOG heading exists (content is human-written) -------
+# --- CHANGELOG: fold changelog.d/ fragments, then retitle [Unreleased] -------
+# The content stays human-written — as changelog.d/<topic>.<type>.md fragments
+# (parallel-safe; see changelog.d/README.md) or direct [Unreleased] edits.
+# The mechanical moves are this script's job: fold the fragments in, retitle
+# the heading, keep a fresh empty [Unreleased] on top. (The old flow died
+# here with "go retitle by hand" — the one manual step left in a release. A
+# heading already retitled by hand still passes.)
+frag_count=0
+[ -d "$REPO/changelog.d" ] && frag_count="$(find "$REPO/changelog.d" -maxdepth 1 \
+    -type f ! -name 'README.md' | wc -l | tr -d ' ')"
+if [ "$frag_count" -gt 0 ]; then
+    "$SCRIPT_DIR/assemble-changelog.sh" | sed 's/^/  /'
+fi
+
 newest_released="$(sed -n 's/^## \[\([0-9][0-9.]*\)\].*/\1/p' "$REPO/CHANGELOG.md" | head -1)"
-if [ "$newest_released" != "$new_version" ]; then
-    {
-        echo "release.sh: CHANGELOG.md's newest release heading is [${newest_released:-none}]," \
-            "not [$new_version]."
-        echo ""
-        echo "The changelog content is written by a human, not by this script."
-        echo "Before re-running:"
-        echo "  1. open CHANGELOG.md"
-        echo "  2. retitle the '## [Unreleased]' section to:"
-        echo "       ## [$new_version] — $(date +%Y-%m-%d)"
-        echo "  3. add a fresh empty '## [Unreleased]' heading above it"
-    } >&2
-    exit 1
+if [ "$newest_released" = "$new_version" ]; then
+    if [ "$frag_count" -gt 0 ]; then
+        die "CHANGELOG.md already carries a [$new_version] heading, but changelog.d/ fragments were just folded into [Unreleased] ABOVE it — move those bullets into [$new_version] (or pick a newer version) and re-run"
+    fi
+    echo "  CHANGELOG.md                 [$new_version] heading already in place"
+else
+    today="$(date +%Y-%m-%d)"
+    python3 - "$REPO/CHANGELOG.md" "$new_version" "$today" <<'PY'
+import re, sys
+path, ver, today = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+anchor = "## [Unreleased]"
+n = text.count(anchor)
+if n != 1:
+    sys.exit("release.sh: CHANGELOG.md has %d '## [Unreleased]' heading(s) — expected exactly 1" % n)
+m = re.search(r"(?ms)^## \[Unreleased\]\n(.*?)(?=^## |\Z)", text)
+if not m.group(1).strip():
+    sys.exit("release.sh: CHANGELOG.md's [Unreleased] section is empty — nothing to release.\n"
+             "Write the release notes first: drop changelog.d/<topic>.<type>.md fragments\n"
+             "(see changelog.d/README.md) or edit the [Unreleased] section directly.")
+text = text.replace(anchor, anchor + "\n\n## [%s] — %s" % (ver, today), 1)
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+PY
+    echo "  retitled CHANGELOG.md        [Unreleased] -> [$new_version] — $today (fresh empty [Unreleased] on top)"
 fi
 
 # --- edit every version point (counted substitutions) ------------------------
@@ -140,8 +170,8 @@ echo ""
 # --- show the human what happened and what is next ---------------------------
 echo ""
 git -C "$REPO" --no-pager diff --stat -- \
-    CMakeLists.txt .template-version helm/cpp-env helm/cpp-api/Chart.yaml \
-    helm/cpp-worker/Chart.yaml helm/cpp-frontend/Chart.yaml
+    CHANGELOG.md changelog.d CMakeLists.txt .template-version helm/cpp-env \
+    helm/cpp-api/Chart.yaml helm/cpp-worker/Chart.yaml helm/cpp-frontend/Chart.yaml
 cat <<EOF
 
 Next steps (nothing has been committed):

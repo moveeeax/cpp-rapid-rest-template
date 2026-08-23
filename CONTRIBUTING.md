@@ -55,6 +55,28 @@ Closes #123
 Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`,
 `chore`. Scope is optional but recommended (e.g. `feat(auth):`, `fix(jobs):`).
 
+## Changelog
+
+`CHANGELOG.md` follows Keep a Changelog. Two ways to record a change — the
+fragment is preferred, because it cannot conflict:
+
+- **Fragment (preferred):** add one file `changelog.d/<topic>.<type>.md`,
+  where `<topic>` is your branch name or a short slug and `<type>` is one of
+  `added` / `changed` / `fixed` / `removed` / `security`. The file holds the
+  bullet text as ONE markdown paragraph, WITHOUT the leading `- ` (the
+  assembler adds it). Two parallel PRs then touch two different files
+  instead of the same `[Unreleased]` lines — the changelog stops being the
+  most-conflicted file in every integration. Format details:
+  `changelog.d/README.md`. CI validates fragment *format*
+  (`./scripts/assemble-changelog.sh --check`) but never *requires* a
+  fragment — PRs with nothing changelog-worthy stay clean.
+- **Direct edit (legal):** append under `## [Unreleased]` in `CHANGELOG.md`
+  as before. Fine for cross-cutting PRs; expect merge conflicts there.
+
+Fragments are folded into `[Unreleased]` (and deleted) at release time by
+`scripts/release.sh`, or any time by a manual
+`./scripts/assemble-changelog.sh`.
+
 ## Code style
 
 - C++20. Header-only modules under `src/`, single `main.cpp` per binary.
@@ -112,18 +134,21 @@ Semver, tagged on `master`. The release version lives in more places than
 one edit can reach by hand (that is how three releases shipped with a stale
 `project(VERSION …)`), so use the script:
 
-1. In `CHANGELOG.md`, retitle `## [Unreleased]` to `## [<ver>] — YYYY-MM-DD`
-   and add a fresh empty `## [Unreleased]` above it. The content stays
-   human-written.
-2. `./scripts/release.sh <ver>` — validates semver + monotonicity, then bumps
-   every remaining version point in one command: `CMakeLists.txt
-   project(VERSION …)`, the 9 image-tag pins in
+1. `./scripts/release.sh <ver>` — validates semver + monotonicity, then:
+   folds any `changelog.d/` fragments into `## [Unreleased]`
+   (`assemble-changelog.sh`, deleting the consumed fragments), retitles that
+   section to `## [<ver>] — YYYY-MM-DD` keeping a fresh empty
+   `## [Unreleased]` on top (a heading you already retitled by hand is
+   accepted too; an empty `[Unreleased]` with no fragments aborts — write
+   the notes first), and bumps every remaining version point in one command:
+   `CMakeLists.txt project(VERSION …)`, the 9 image-tag pins in
    `helm/cpp-env/values{,-demo,-stage}.yaml`, and the 4 `Chart.yaml`
    `appVersion` fields. It re-runs `scripts/check-version-sync.sh` (which
-   gates all of those in CI) and prints the diff. It commits nothing.
-3. Commit changelog + bumps as ONE commit:
-   `chore(release): <ver> — <one-line summary>`.
-4. After it lands on `master`, `git tag v<ver> && git push origin v<ver>`.
+   gates all of those in CI) and prints the diff. It commits nothing; the
+   changelog *content* stays human-written — the script only moves it.
+2. Review `git diff`, then commit changelog + fragment deletions + bumps as
+   ONE commit: `chore(release): <ver> — <one-line summary>`.
+3. After it lands on `master`, `git tag v<ver> && git push origin v<ver>`.
    A tag matching `v*.*.*` triggers `.github/workflows/release.yml`, which
    builds the app, worker and frontend images, pushes them to
    `ghcr.io/<owner>/<repo>` (and `-worker` / `-frontend`) with the
