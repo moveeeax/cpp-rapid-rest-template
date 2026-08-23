@@ -700,11 +700,21 @@ void register_docs_endpoints() {
     drogon::app().registerHandler(
         "/api/v1/docs",
         [](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
+            // Swagger UI is loaded from the CDN pinned to an EXACT version
+            // with Subresource Integrity — a floating @5 tag would let a
+            // compromised (or merely republished) CDN artifact run arbitrary
+            // script on our /api/v1/docs origin. Bumping the version means
+            // re-pinning BOTH hashes. Provenance (2026-08-23): fetched
+            //   https://unpkg.com/swagger-ui-dist@5.32.14/swagger-ui.css
+            //   https://unpkg.com/swagger-ui-dist@5.32.14/swagger-ui-bundle.js
+            // hashed with `openssl dgst -sha384 -binary | base64`, and
+            // cross-checked byte-identical against the same files on
+            // cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.14.
             static const std::string kSwaggerUiHtml = R"(<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>API docs</title>
-<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.32.14/swagger-ui.css" integrity="sha384-fgyWYkUAamzuI8mJFu/xpRP0JWCJRwkwUwsYDoOYVHUJ8NQE5cENn8ib3ppwFFSX" crossorigin="anonymous">
 </head><body><div id="swagger-ui"></div>
-<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script src="https://unpkg.com/swagger-ui-dist@5.32.14/swagger-ui-bundle.js" integrity="sha384-Dt83RhU85ZmX7werw9uTFCzmauXUoSyx3pdzTQMABtsnFmooJy4Vz9/ACh7n5m1A" crossorigin="anonymous"></script>
 <script>window.onload = () => { SwaggerUIBundle({
   url: '/api/v1/openapi.yaml', dom_id: '#swagger-ui', deepLinking: true,
   presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset]

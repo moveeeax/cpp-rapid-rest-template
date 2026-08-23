@@ -11,15 +11,14 @@
  *          this header (that used to form an include cycle).
  *
  *          ONLY binary entry points include this header: src/main.cpp and
- *          tests/e2e (which boots the full server). Everything else —
- *          controllers, tests/api, tests/unit — includes the specific
- *          header it needs, so no controller is a transitive dependency of
- *          another and touching one controller recompiles one TU, not all.
+ *          tests/e2e (which boots the full server) — plus its own body file
+ *          Api.cpp. Everything else — controllers, tests/api, tests/unit —
+ *          includes the specific header it needs, so no controller is a
+ *          transitive dependency of another and touching one controller
+ *          recompiles one TU, not all.
  */
 
 #pragma once
-
-#include <spdlog/spdlog.h>
 
 #include "api/Endpoints.hpp"
 #include "api/RequestUtils.hpp"
@@ -66,21 +65,10 @@ namespace Api {
  *
  *          Tracing is registered on the pre-handling path so the server span
  *          is opened only for requests that will actually reach a handler.
+ *
+ *          The body lives in Api.cpp (compiled once into app_core; ADR 0003
+ *          as amended 2026-08-22) — it, not this header, pulls spdlog.
  */
-inline void register_controllers() {
-    spdlog::info("Registering API controllers");
-    middleware::ensure_http_metric_families();
-    middleware::register_request_id();
-    middleware::register_content_type_check();
-    middleware::register_auth();
-    middleware::register_csrf();
-    middleware::register_rate_limit();
-    middleware::register_idempotency();
-    middleware::register_cors();
-    middleware::register_security_headers();
-    middleware::register_tracing_pre();
-    middleware::register_access_log_post();
-    register_docs_endpoints();
-}
+void register_controllers();
 
 }  // namespace Api
