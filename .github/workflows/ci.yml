@@ -199,10 +199,12 @@ jobs:
         run: ./scripts/check-frontend-nginx-sync.sh
       - name: Check module dependency DAG (src/ include edges)
         run: ./scripts/check-module-deps.sh
+      - name: Check config key sync (src reads vs config jsons, CONFIG.md, helm env lists)
+        run: ./scripts/check-config-sync.sh
 
   gate-selftest:
     runs-on: ubuntu-latest
-    # Proves the seven check-* gates BITE: per gate, copy the subtree it reads,
+    # Proves the eight check-* gates BITE: per gate, copy the subtree it reads,
     # plant a known breakage (counted mutators; a no-op mutation is itself a
     # failure), and require the gate to fail AND name what it found — after
     # first PASSING the untouched copy as a control. A gate only ever run

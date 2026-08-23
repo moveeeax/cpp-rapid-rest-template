@@ -75,6 +75,7 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 | `RATE_LIMIT_WHITELIST` | `rate_limit.whitelist` | csv | — | IPs / user IDs that bypass |
 | `RATE_LIMIT_PROTECTED_REQUESTS` | `rate_limit.protected_requests` | int | `10` | Stricter budget for the auth-public brute-force surfaces (login/register/refresh, token-bearing account links, public content — `Utils::Strings::kDefaultProtectedPathsCsv`), which the general limiter skips as public paths |
 | `RATE_LIMIT_PROTECTED_WINDOW_SEC` | `rate_limit.protected_window_sec` | int | `60` | Window for the protected-path budget |
+| `RATE_LIMIT_PROTECTED_PATHS` | `rate_limit.protected_paths` | csv | `Utils::Strings::kDefaultProtectedPathsCsv` | The protected-budget path set (same matching rules as public paths). FULL override of the built-in default — env or code default only; deliberately NOT in `config/*.json` (a present-but-empty string value would silently empty the set, see `docs/config-sync-allowlist.txt`) |
 
 ## Security headers & CSRF
 
@@ -140,15 +141,16 @@ else fails fast at boot. Swap in another store by subclassing `StorageBackend`.
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
 | `DATABASE_PRIMARY_URL` | `database.primary` | string | `postgresql://localhost:5432/appdb` | Connection string |
-| `DATABASE_REPLICA_URLS` | `database.replicas` | csv | — | Read replicas |
+| `DATABASE_REPLICA_URLS` | `database.replicas` | csv | — | Read replicas (full URLs) |
+| `DATABASE_REPLICA_HOSTS` | — | csv | — | Replica HOSTS only (env-only; checked when `DATABASE_REPLICA_URLS` is unset): each host is assembled into a DSN with the primary's `DATABASE_PORT`/`DATABASE_USER`/`DATABASE_NAME`/`DATABASE_PASSWORD`, so the password is never baked into a URL env var |
 | `DB_POOL_SIZE` | `database.pool_size` | int | `10` | Per-pool connections (primary + each replica). Keep ≥ `server.threads`: a smaller pool makes IO threads queue on `acquire()`; a much larger pool leaves the extra connections inert (and the `db_pool` saturation gauge under-reports). |
 | `DB_ACQUIRE_TIMEOUT_MS` | `database.acquire_timeout_ms` | int | `5000` | |
 | `DB_STATEMENT_TIMEOUT_MS` | `database.statement_timeout_ms` | int | `30000` | Per-connection PostgreSQL `statement_timeout`. `0` disables. |
 | `DB_MIGRATIONS_ENABLED` | `database.migrations_enabled` | bool | `true` | Set `false` when init-container runs them |
 | `DB_MIGRATIONS_DIR` | `database.migrations_dir` | string | `migrations` | |
-| `DB_RETRY_MAX_ATTEMPTS` | `database.retry.max_attempts` | int | `3` | |
-| `DB_RETRY_BASE_DELAY_MS` | `database.retry.base_delay_ms` | int | `100` | |
-| `DB_RETRY_MAX_DELAY_MS` | `database.retry.max_delay_ms` | int | `2000` | |
+| `DB_RETRY_MAX_ATTEMPTS` | `database.retry.max_attempts` | int | `2` | |
+| `DB_RETRY_BASE_DELAY_MS` | `database.retry.base_delay_ms` | int | `20` | |
+| `DB_RETRY_MAX_DELAY_MS` | `database.retry.max_delay_ms` | int | `200` | |
 | `DB_RETRY_JITTER` | `database.retry.jitter` | bool | `true` | Full-jitter backoff |
 | `DB_POOL_METRIC_REFRESH_SEC` | `database.pool_metric_refresh_sec` | int | `10` | Refresh interval for the `db_pool_active_connections` / `db_pool_size` gauges |
 
@@ -233,10 +235,10 @@ override minimal (or unset) and add module paths through the extra key.
 |---|---|---|---|---|
 | `BILLING_ENABLED` | `billing.enabled` | bool | `false` | Master switch for the billing module (`Core::billing_enabled()`) — same on/off pattern as `CONTENT_ENABLED`; routes stay registered, handlers 404 while off. `Billing::initialize()` (called from `Core::initialize()`) throws at boot if this is `true` and `client_id`/`client_secret`/`webhook_id` are empty. |
 | — | `billing.provider` | string | `paypal` | Only provider supported today |
-| — | `billing.currency` | string | `USD` | ISO 4217; must be a 2-decimal currency (the cents parser rejects others) |
-| — | `billing.credits_per_unit` | int | `100` | Credits minted per currency unit (100 cents) captured. Config default only — the live value is the `billing_settings` row (migration 008), editable at runtime by the admin API |
-| — | `billing.min_amount_cents` | int | `100` | Custom top-up lower bound; live value in `billing_settings` |
-| — | `billing.max_amount_cents` | int | `100000` | Custom top-up upper bound; live value in `billing_settings` |
+| `BILLING_CURRENCY` | `billing.currency` | string | `USD` | ISO 4217; must be a 2-decimal currency (the cents parser rejects others) |
+| `BILLING_CREDITS_PER_UNIT` | `billing.credits_per_unit` | int | `100` | Credits minted per currency unit (100 cents) captured. Config default only — the live value is the `billing_settings` row (migration 008), editable at runtime by the admin API |
+| `BILLING_MIN_AMOUNT_CENTS` | `billing.min_amount_cents` | int | `100` | Custom top-up lower bound; live value in `billing_settings` |
+| `BILLING_MAX_AMOUNT_CENTS` | `billing.max_amount_cents` | int | `100000` | Custom top-up upper bound; live value in `billing_settings` |
 | `PAYPAL_ENV` | `billing.paypal.environment` | enum | `sandbox` | `sandbox` \| `live`; unknown values fail safe to sandbox |
 | `PAYPAL_CLIENT_ID` | `billing.paypal.client_id` | string | — | Public; not a credential |
 | `PAYPAL_CLIENT_SECRET` | `billing.paypal.client_secret` | string | — | Never logged; the only true secret in this block — sourced from the chart Secret, never a plaintext value in tracked files |

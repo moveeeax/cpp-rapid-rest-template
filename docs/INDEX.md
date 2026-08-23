@@ -29,6 +29,7 @@ question instead of grepping the tree.
 | [`../src/billing/Wallet.hpp`](../src/billing/Wallet.hpp) | Billing module core (PayPal top-ups → credit wallet): append-only ledger, idempotent capture/refund — the canonical example of the no-self-referencing-upsert accumulation pattern. Controllers in `src/api/BillingController.hpp` / `AdminBillingController.hpp`, transactional emails in `src/email/BillingEmails.hpp` |
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 spec for every registered route. `scripts/check-openapi-drift.sh` keeps it honest; `frontend/npm run gen:api` consumes it for typed client |
 | [`module-deps.txt`](module-deps.txt) | Allowed include edges between `src/` directories — the declared architecture `scripts/check-module-deps.sh` enforces (utils is the bottom layer; `core/Core.hpp` only from binary entry points; no `webhooks -> email`) |
+| [`config-sync-allowlist.txt`](config-sync-allowlist.txt) | Commented exceptions for `scripts/check-config-sync.sh`: config reads the extractor regex can't see, and keys deliberately absent from the config jsons |
 | [`Doxyfile`](Doxyfile) | `make docs` configuration; output goes to `docs/html/` (gitignored) |
 | [`superpowers/`](superpowers/) | Design specs + implementation plans: the ACTIVE modularity target design (`specs/2026-08-22-modularity-design.md`) and archived past waves (content module, bench nightly, hygiene/hardening) |
 
@@ -106,11 +107,12 @@ question instead of grepping the tree.
 | `release.sh` | Bump every version point of a release in one command (CMakeLists + 9 helm tag pins + 4 appVersions) after the human retitles the CHANGELOG heading; verifies with check-version-sync.sh, commits nothing |
 | `check-frontend-nginx-sync.sh` | Verify `frontend/nginx.conf` and the helm cpp-frontend ConfigMap agree on the proxied backend routes |
 | `check-module-deps.sh` | Verify every cross-directory `#include` in `src/` is an edge declared in `docs/module-deps.txt`; hard-forbids `utils -> *`, non-entry-point includes of `core/Core.hpp`, and `webhooks -> email` |
+| `check-config-sync.sh` | Verify every config read in `src/` (`cfg.get<T>("path", "ENV", …)` + getenv) exists in `config/config.json` AND `config/config.sample.json` and is documented in `docs/CONFIG.md`; flags stale doc rows and stale helm env lines (exceptions: `docs/config-sync-allowlist.txt`) |
 | `check-helm-render.sh` | Render the cpp-env umbrella with CI values and assert deploy-path invariants (ports, hosts, empty credential defaults) |
 | `check-artifact.py` | Content + leaked-template-syntax gate over ONE rendered artifact's extracted text (opt-in, for document-rendering forks — see docs/RENDER-GATE.md) |
 | `render-artifacts.sh` | Loop for the opt-in artifact gate: render every `templates/render/*/fixtures/*.json` via `RENDER_CMD`/`EXTRACT_CMD`, then gate with `check-artifact.py`; zero fixtures = failure |
 | `check-artifact-selftest.sh` | Mandatory selftest for the artifact gate: healthy example (incl. hostile data fixture) must PASS, two counted mutations must be caught and named |
-| `check-selftest.sh` | Prove all seven `check-*` gates bite: plant 16 known breakages in scratch copies, require each gate to fail AND name it (control-pass first, counted mutators, a no-op mutation is itself a failure; needs helm+yq) |
+| `check-selftest.sh` | Prove all eight `check-*` gates bite: plant 18 known breakages in scratch copies, require each gate to fail AND name it (control-pass first, counted mutators, a no-op mutation is itself a failure; needs helm+yq) |
 | `prod-check.sh` | Pre-deploy assertions on a production config (auth, secrets, TLS, fail-closed) |
 | `lint-openapi.sh` | Spectral lint with project ruleset |
 | `make-jwt.sh` | Mint a dev HS256 JWT (no Python/Node deps) |
