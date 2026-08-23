@@ -20,6 +20,10 @@ map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
   wiring): `./scripts/new-module.sh <name>`
 - Migration: `make new-migration SLUG=<slug>`
 - React page: `./scripts/new-react-page.sh`
+- Release: `./scripts/release.sh <ver>` — after the human retitles the
+  CHANGELOG `[Unreleased]` heading, bumps every other version point in one
+  command (CMakeLists + 9 helm tag pins + 4 Chart.yaml appVersions); commits
+  nothing (CONTRIBUTING.md "Release")
 
 The generators encode the invariants below — their output passes the CI
 gates by construction. Hand-rolled versions usually don't.
@@ -80,7 +84,7 @@ gates by construction. Hand-rolled versions usually don't.
    && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh`
    — seconds, no build.
    Touched a `check-*` script? Also run `./scripts/check-selftest.sh` —
-   plants 14 breakages and requires every gate to catch and name them
+   plants 16 breakages and requires every gate to catch and name them
    (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
    `scripts/`, `helm/` or `.github/workflows/`, with a nightly
    unconditional backstop in `.github/workflows/gates-nightly.yml`)
@@ -117,8 +121,10 @@ CI; the fork enables it per `docs/RENDER-GATE.md`.
 - Don't bump `version` in `vcpkg.json` — the Dockerfile keys the whole
   dependency-install layer on that manifest, so touching it rebuilds ~29
   packages and blows CI timeouts. The release version lives in
-  `CMakeLists.txt` `project(VERSION …)` and must match the newest
-  CHANGELOG heading (`scripts/check-version-sync.sh` gates it).
+  `CMakeLists.txt` `project(VERSION …)`, the helm image-tag pins and the
+  `Chart.yaml` appVersions, and must match the newest CHANGELOG heading
+  (`scripts/check-version-sync.sh` gates all of them; `scripts/release.sh`
+  bumps all of them).
 - Don't change the error-response shape without updating `docs/openapi.yaml`.
 - Don't accumulate with a self-referencing upsert through
   `Database::execute_write` — `INSERT ... ON CONFLICT DO UPDATE SET x = t.x +
