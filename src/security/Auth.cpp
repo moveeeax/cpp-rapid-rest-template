@@ -281,17 +281,6 @@ bool has_role(const drogon::HttpRequestPtr& req, const std::string& role) {
     return std::find(p->roles.begin(), p->roles.end(), role) != p->roles.end();
 }
 
-bool has_any_role(const drogon::HttpRequestPtr& req, const std::vector<std::string>& roles) {
-    auto p = principal_of(req);
-    if (!p)
-        return false;
-    for (const auto& want : roles) {
-        if (std::find(p->roles.begin(), p->roles.end(), want) != p->roles.end())
-            return true;
-    }
-    return false;
-}
-
 bool auth_enforced() {
     return is_initialized() && get().config().mode != AuthMode::None;
 }
@@ -302,14 +291,6 @@ drogon::HttpResponsePtr require_role(const drogon::HttpRequestPtr& req, const st
     if (has_role(req, role))
         return {};
     return ErrorResponse::make({drogon::k403Forbidden, "forbidden", "", nlohmann::json{{"required_role", role}}});
-}
-
-drogon::HttpResponsePtr require_any_role(const drogon::HttpRequestPtr& req, const std::vector<std::string>& roles) {
-    if (!auth_enforced())
-        return {};
-    if (has_any_role(req, roles))
-        return {};
-    return ErrorResponse::make({drogon::k403Forbidden, "forbidden", "", nlohmann::json{{"required_roles", roles}}});
 }
 
 drogon::HttpResponsePtr require_confirmed(const drogon::HttpRequestPtr& req) {
@@ -349,10 +330,6 @@ bool current_user_can(const drogon::HttpRequestPtr& req, std::uint32_t perm) {
     if ((have & kAdminPermissionBits) == kAdminPermissionBits)
         return true;
     return (have & perm) == perm;
-}
-
-bool current_user_is_admin(const drogon::HttpRequestPtr& req) {
-    return current_user_can(req, kAdminPermissionBits);
 }
 
 drogon::HttpResponsePtr require_permission(const drogon::HttpRequestPtr& req, std::uint32_t perm) {
