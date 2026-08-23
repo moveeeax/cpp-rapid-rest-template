@@ -1,1 +1,0 @@
-`init-project.sh --with-orgs` (installs the multi-tenancy kit post-rename) and `--minimal` (strips the content module via `remove-content-module.sh` with the full gate battery green on the cut tree); self-verification fixed on pristine trees (#57).
