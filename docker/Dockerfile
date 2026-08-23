@@ -197,18 +197,21 @@ CMD ["--gtest_color=yes"]
 # /app/build — without it a fresh `cmake -B build-san` would reinstall the whole
 # dependency set from source (no binary cache inside the image).
 FROM builder AS sanitizer-builder
-# NOTE (council backlog, measured 2026-06): extending ASan to the integration
-# bucket here is deferred until T1 Phase 2 (app_core). Compiling the integration
-# TUs under ASan — heavy headers, no shared object file — OOM'd an 8 GB buildkit
-# VM at ~24/39 (rpc EOF), and would risk the same on CI runners. Once the heavy
-# bodies live in a single app_core .cpp, instrumenting them once is cheap; until
-# then sanitizers cover the unit bucket only.
+# NOTE (2026-08, closes the 2026-06 council-backlog deferral): sanitizers now
+# cover the integration bucket too. The old blocker — compiling the integration
+# TUs under ASan OOM'd an 8 GB buildkit VM at ~24/39 (rpc EOF; heavy header-only
+# bodies re-instrumented in every TU) — was removed by app_core STATIC
+# (PRs #44–#46): the heavy bodies live in .cpp files compiled exactly once, so
+# instrumenting them is cheap. This stage and CI's sanitizers/tsan jobs build
+# unit + integration; CI runs integration against the compose `test` profile
+# Postgres/Redis (see ci.yml).
 RUN cmake -B build-san -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DENABLE_SANITIZERS=ON \
     -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed \
     -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake && \
-    cmake --build build-san -j"$(nproc)" --target cpp_api_template_tests_unit
+    cmake --build build-san -j"$(nproc)" \
+        --target cpp_api_template_tests_unit cpp_api_template_tests_integration
 
 # Stage 3: Shared runtime base
 FROM ubuntu:24.04 AS runtime-base

@@ -608,13 +608,22 @@ jobs:
 
   sanitizers:
     runs-on: ubuntu-latest
-    # AddressSanitizer + UndefinedBehaviorSanitizer over the unit-test bucket.
-    # Integration tests need real Postgres/Redis which aren't wired into this
-    # job — keep them out of the filter. Allows a separate, fast feedback
-    # signal for memory/UB regressions.
-    # 90, not 60: cold-cache runs rebuild the vcpkg world (~35 min) and the
-    # sanitizer-instrumented compile is slower than the plain one.
-    timeout-minutes: 90
+    # AddressSanitizer + UndefinedBehaviorSanitizer over the unit AND
+    # integration/api buckets. Unit builds and runs first — the fast
+    # memory/UB signal survives even if the heavier integration leg dies.
+    # Integration runs against the same ephemeral test-postgres/test-redis
+    # sidecars `make test` uses (compose `test` profile), with
+    # CI_REQUIRE_INFRA=1 so a mis-wired sidecar FAILS the suites instead of
+    # turning 160+ cases into SKIPs that report green while checking nothing.
+    # History: integration was excluded because compiling its TUs under ASan
+    # OOM'd an 8 GB buildkit VM (~24/39, rpc EOF — heavy header-only bodies
+    # re-instrumented in every TU). app_core STATIC (PRs #44–#46) moved those
+    # bodies into .cpp files compiled once, which removed the blocker.
+    # 120, not 90: cold-cache runs rebuild the vcpkg world (~35 min), the
+    # sanitizer-instrumented compile is slower than the plain one, and the
+    # integration suite under ASan runs a low single-digit multiple of its
+    # plain ~2 min wall clock.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -685,13 +694,35 @@ jobs:
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
           cache-to: type=gha,mode=max
 
-      - name: Build & run unit tests with ASan + UBSan
+      - name: Start test Postgres + Redis (compose `test` profile)
+        # The same ephemeral sidecars `make test` uses — no volume, fresh
+        # schema (the integration suites run MigrationRunner themselves).
+        # --wait blocks on the compose healthchecks so the suite never races
+        # a still-starting Postgres.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test up -d --wait test-postgres test-redis
+
+      - name: Build & run unit + integration tests with ASan + UBSan
         # The -e ACTIONS_* pass-through + sccache launcher lets the sanitizer
         # recompile hit the same Actions-cache-backed sccache as the builder
         # image build (distinct flags → distinct cache entries, no collisions).
+        # The container joins the compose network, so the `test-postgres` /
+        # `test-redis` service names resolve exactly as they do for the
+        # test-runner service. CI_REQUIRE_INFRA=1: missing infra must FAIL,
+        # not skip-and-report-green (see test_helpers.hpp).
+        # Unit first: build + run the cheap binary before the heavy one so a
+        # regression there is reported in minutes, not after the full build.
         if: steps.scope.outputs.relevant == 'true'
         run: |
+          NET=$(docker inspect cpp_api_test_postgres \
+            --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}')
           docker run --rm \
+              --network "$NET" \
+              -e TEST_PG_HOST=test-postgres \
+              -e TEST_REDIS_HOST=test-redis \
+              -e CI_REQUIRE_INFRA=1 \
               -e SCCACHE_GHA_ENABLED=on \
               -e ACTIONS_CACHE_SERVICE_V2 \
               -e ACTIONS_RESULTS_URL \
@@ -710,20 +741,42 @@ jobs:
                       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
                       -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed  # reuse the builder stage's vcpkg tree (mirrors the sanitizer-builder Dockerfile stage); avoids a full vcpkg reinstall
                   cmake --build build-san -j\$(nproc) --target cpp_api_template_tests_unit
-                  sccache --show-stats
                   ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
                   UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
                   ./build-san/cpp_api_template_tests_unit \
                       --gtest_color=yes
+                  cmake --build build-san -j\$(nproc) --target cpp_api_template_tests_integration
+                  sccache --show-stats
+                  ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
+                  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+                  ./build-san/cpp_api_template_tests_integration \
+                      --gtest_color=yes
               "
+
+      - name: Dump test-infra logs on failure
+        if: failure() && steps.scope.outputs.relevant == 'true'
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test logs test-postgres test-redis || true
 
   tsan:
     runs-on: ubuntu-latest
-    # ThreadSanitizer over the unit-test bucket. The codebase leans on inline
-    # singletons + atomics (ADR 0004) — exactly where races hide. Kept apart
-    # from the ASan job: TSan can't share a process with ASan.
-    # 90, not 60: same cold-vcpkg math as the sanitizers job.
-    timeout-minutes: 90
+    # ThreadSanitizer over the unit AND integration/api buckets. The codebase
+    # leans on inline singletons + atomics (ADR 0004) — exactly where races
+    # hide, and the integration bucket is where the connection pools, the job
+    # queue and the cache actually run multi-threaded against real
+    # Postgres/Redis. Kept apart from the ASan job: TSan can't share a
+    # process with ASan. Same infra wiring as the sanitizers job (compose
+    # `test` profile sidecars + CI_REQUIRE_INFRA=1 — skips must not report
+    # green), unit first for the fast signal. Unblocked by app_core STATIC
+    # (PRs #44–#46) — see the sanitizers job header for the OOM history.
+    # No suppression file: if TSan reports races inside redis++/pqxx
+    # internals, read them first — only add a documented, pinpoint tsan.supp
+    # for provably-third-party noise, never for our own code.
+    # 120, not 90: same cold-vcpkg math as the sanitizers job, plus TSan's
+    # runtime slowdown on the integration suite (mostly I/O-bound, so well
+    # under TSan's worst-case multiplier, but real).
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -794,12 +847,27 @@ jobs:
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
           cache-to: type=gha,mode=max
 
-      - name: Build & run unit tests with TSan
-        # Same sccache pass-through as the sanitizers job (TSan flags form
-        # their own cache entries).
+      - name: Start test Postgres + Redis (compose `test` profile)
+        # Same ephemeral sidecars as `make test` and the sanitizers job;
+        # --wait blocks on the compose healthchecks.
         if: steps.scope.outputs.relevant == 'true'
         run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test up -d --wait test-postgres test-redis
+
+      - name: Build & run unit + integration tests with TSan
+        # Same sccache pass-through as the sanitizers job (TSan flags form
+        # their own cache entries), same compose-network + CI_REQUIRE_INFRA=1
+        # wiring, same unit-first ordering for the fast signal.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          NET=$(docker inspect cpp_api_test_postgres \
+            --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}')
           docker run --rm \
+              --network "$NET" \
+              -e TEST_PG_HOST=test-postgres \
+              -e TEST_REDIS_HOST=test-redis \
+              -e CI_REQUIRE_INFRA=1 \
               -e SCCACHE_GHA_ENABLED=on \
               -e ACTIONS_CACHE_SERVICE_V2 \
               -e ACTIONS_RESULTS_URL \
@@ -818,8 +886,18 @@ jobs:
                       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
                       -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed
                   cmake --build build-tsan -j\$(nproc) --target cpp_api_template_tests_unit
-                  sccache --show-stats
                   TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 \
                   ./build-tsan/cpp_api_template_tests_unit \
                       --gtest_color=yes
+                  cmake --build build-tsan -j\$(nproc) --target cpp_api_template_tests_integration
+                  sccache --show-stats
+                  TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 \
+                  ./build-tsan/cpp_api_template_tests_integration \
+                      --gtest_color=yes
               "
+
+      - name: Dump test-infra logs on failure
+        if: failure() && steps.scope.outputs.relevant == 'true'
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test logs test-postgres test-redis || true
