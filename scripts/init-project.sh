@@ -269,7 +269,10 @@ if [[ $DRY_RUN -eq 1 ]]; then
     if [[ -d "helm/cpp-worker" && "cpp-worker" != "${PROJECT_NAME}-worker" ]]; then
         echo "==> Would rename helm/cpp-worker -> helm/${PROJECT_NAME}-worker"
     fi
-    echo "==> Would write project.env (PROJECT_NAME=${PROJECT_NAME}, REGISTRY=${REGISTRY}, GHCR_ORG=${REGISTRY_ORG})"
+    echo "==> Would write project.env (PROJECT_NAME=${PROJECT_NAME}, REGISTRY=${REGISTRY}, GHCR_ORG=${REGISTRY_ORG}, TEMPLATE_FORK=1)"
+    if [[ ! -f .template-version ]]; then
+        echo "==> Would stamp .template-version from CMakeLists.txt project(VERSION ...)"
+    fi
     if [[ $NO_DEMO -eq 1 ]]; then
         for p in "_reference" "docs/PATTERNS-FROM-FLASK-BASE.md"; do
             [[ -e "$ROOT/$p" ]] && echo "==> Would remove reference material: $p"
@@ -301,12 +304,36 @@ if [[ -d "helm/cpp-worker" && "cpp-worker" != "${PROJECT_NAME}-worker" ]]; then
 fi
 
 # ── Update project.env ──────────────────────────────────────────
+# TEMPLATE_FORK=1 flips .template-version from "the template's own release
+# version" (bumped by scripts/release.sh, checked by check-version-sync.sh)
+# to "the template release this fork last synced" — owned by
+# scripts/sync-upstream.sh and deliberately independent of the fork's own
+# release numbering. See docs/UPSTREAM.md.
 cat >project.env <<EOF
 PROJECT_NAME=${PROJECT_NAME}
 REGISTRY=${REGISTRY}
 GHCR_ORG=${REGISTRY_ORG}
+TEMPLATE_FORK=1
 EOF
 echo "==> Updated project.env"
+
+# ── Stamp the template version this fork was cut from ───────────
+# scripts/sync-upstream.sh reads this one-line file as the BASE for its
+# three-way patch series against the template's release tarballs. At init
+# time the CMake project(VERSION ...) still carries the template's release,
+# so it is the right stamp. Never overwrite an existing stamp: on a --force
+# re-run (or a fork that already synced) the recorded version is the truth.
+if [[ ! -f .template-version ]]; then
+    TEMPLATE_VER="$(sed -n 's/^project(.*VERSION[[:space:]]\{1,\}\([0-9][0-9.]*\).*/\1/p' CMakeLists.txt | head -1)"
+    if [[ -n "$TEMPLATE_VER" ]]; then
+        printf '%s\n' "$TEMPLATE_VER" >.template-version
+        echo "==> Stamped .template-version = ${TEMPLATE_VER} (sync base for scripts/sync-upstream.sh)"
+    else
+        echo "WARNING: could not parse project(VERSION ...) from CMakeLists.txt —" >&2
+        echo "         write the template release you forked from into .template-version" >&2
+        echo "         by hand, or scripts/sync-upstream.sh will ask for --base." >&2
+    fi
+fi
 
 echo ""
 
