@@ -38,3 +38,17 @@ Modularity investment goes where the measurements point instead:
 hub-splitting (Modules.hpp, per-module registration), a declared
 include DAG with a gate, `app_core` STATIC de-inlining, and
 single-source generation for config/release surfaces.
+
+## Update — 2026-08-23 (Phase 3 execution)
+
+The "cheaper cut" left open above — registering Drogon routes FROM the
+`Endpoints.hpp` registry — was evaluated and is now also rejected. The
+registry is deliberately metadata-only (`{method, path, description}`
+strings); wiring handlers through it would require the registry to see
+every controller, recreating the controller include hub that the Phase 1
+hub split (#43) dismantled, or abandoning `HttpController` for lambda
+registration across all 13 controllers — a fork-facing idiom change that
+buys the removal of one scaffolder-written, twice-gated copy. Revisit
+triggers unchanged (route count several-fold, recurring sync incidents).
+The other Phase 3 items shipped instead: `release.sh` + helm-pin gating
+(#50), CI self-scoping (#47), and the config-sync gate (#51).
