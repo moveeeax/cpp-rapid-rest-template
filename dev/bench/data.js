@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789463516214,
+  "lastUpdate": 1789463519076,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -3593,6 +3593,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "idle RSS",
             "value": 4.1,
+            "unit": "MB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e01f33e1d7934817a266d39f89ee2470bd64991f",
+          "message": "chore(release): 1.6.0 — modularity arc, billing module, fork tooling, CI hardening (#67)",
+          "timestamp": "2026-08-23T16:14:45Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/e01f33e1d7934817a266d39f89ee2470bd64991f"
+        },
+        "date": 1789463518361,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "healthz p50",
+            "value": 3,
+            "unit": "ms"
+          },
+          {
+            "name": "healthz p99",
+            "value": 11.67,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p50",
+            "value": 14.51,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p99",
+            "value": 30.06,
+            "unit": "ms"
+          },
+          {
+            "name": "runtime image size",
+            "value": 109.1,
+            "unit": "MB"
+          },
+          {
+            "name": "cold start to /ready",
+            "value": 777,
+            "unit": "ms"
+          },
+          {
+            "name": "idle RSS",
+            "value": 4.3,
             "unit": "MB"
           }
         ]
