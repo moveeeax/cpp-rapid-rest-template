@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790238932404,
+  "lastUpdate": 1790326584176,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -1599,6 +1599,38 @@ window.BENCHMARK_DATA = {
           {
             "name": "jobs req/s",
             "value": 20234.95,
+            "unit": "req/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "39ed097af48ac6d64191fad3713994983b1e68d4",
+          "message": "chore(release): 1.6.0 — modularity arc, billing module, fork tooling, CI hardening (#67)",
+          "timestamp": "2026-08-23T16:14:45Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/39ed097af48ac6d64191fad3713994983b1e68d4"
+        },
+        "date": 1790326583583,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "healthz req/s",
+            "value": 39460.71,
+            "unit": "req/s"
+          },
+          {
+            "name": "jobs req/s",
+            "value": 8097.84,
             "unit": "req/s"
           }
         ]
