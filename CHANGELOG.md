@@ -9,6 +9,10 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 ## [1.7.0] — 2026-11-04
 
 ### Changed
+- Release pipeline installs Trivy from its GitHub release (sha256-verified
+  against the release checksums) instead of `aquasecurity/trivy-action`,
+  whose install script downloads from `get.trivy.dev`; that domain stopped
+  resolving on 2026-11-04 (aquasecurity/trivy#11537).
 - Compose Kafka moved from Confluent 7.5 + ZooKeeper to `apache/kafka:4.4.0`
   in KRaft mode (single combined broker/controller, new `kafka_kraft_data`
   volume — the old ZooKeeper-era `kafka_data`/`zookeeper_*` volumes are no
