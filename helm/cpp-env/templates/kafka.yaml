@@ -23,7 +23,7 @@ spec:
         kubernetes.io/arch: amd64
       containers:
         - name: kafka
-          image: apache/kafka:3.8.0
+          image: apache/kafka:4.4.0
           ports:
             - { name: client, containerPort: 9092 }
           env:

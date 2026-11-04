@@ -385,72 +385,55 @@ services:
       timeout: 3s
       retries: 5
 
-  # Kafka + Zookeeper (optional)
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: cpp_api_zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
-      - zookeeper_log:/var/lib/zookeeper/log
-    networks:
-      - app-network
-    restart: unless-stopped
-    healthcheck:
-      # cub (Confluent Utility Belt) ships in cp-* images; nc does not.
-      test: ["CMD", "cub", "zk-ready", "localhost:2181", "5"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-    # Cap memory so a dev laptop doesn't OOM when the kafka profile is up.
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-    profiles:
-      - with-kafka
-
+  # Kafka (optional) — single broker in KRaft mode (combined broker +
+  # controller, no ZooKeeper; Kafka 4.x removed ZooKeeper support). Same
+  # shape as helm/cpp-env/templates/kafka.yaml. The data volume is
+  # kafka_kraft_data, not the old ZooKeeper-era kafka_data: a log dir
+  # formatted under ZooKeeper does not start in KRaft mode.
   kafka:
-    image: confluentinc/cp-kafka:7.5.0
+    image: apache/kafka:4.4.0
     container_name: cpp_api_kafka
-    depends_on:
-      zookeeper:
-        # List-form depends_on only waits for container START; Kafka racing
-        # an unready Zookeeper is a classic CI flake.
-        condition: service_healthy
     ports:
       - "9092:9092"
       - "9093:9093"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # CONTROLLER listens on 29093 inside the container only (not published).
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PLAINTEXT_HOST://:9093,CONTROLLER://:29093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:29093
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # Fixed dev cluster id (base64 UUID, `kafka-storage.sh random-uuid`);
+      # the image formats the log dir with it on first start.
+      CLUSTER_ID: fu2f9dRTS6mQHVbUxwZi5A
       # Bound the JVM so the kafka profile fits on a dev laptop.
       KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     volumes:
-      - kafka_data:/var/lib/kafka/data
+      - kafka_kraft_data:/var/lib/kafka/data
     networks:
       - app-network
     restart: unless-stopped
     profiles:
       - with-kafka
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 30s
 
   # Prometheus for metrics (optional)
   prometheus:
-    image: prom/prometheus:v3.12.0
+    image: prom/prometheus:v3.15.1
     container_name: cpp_api_prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -475,7 +458,7 @@ services:
 
   # Grafana for visualization (optional)
   grafana:
-    image: grafana/grafana:11.6
+    image: grafana/grafana:13.3
     container_name: cpp_api_grafana
     ports:
       - "3000:3000"
@@ -502,7 +485,7 @@ services:
   # ---- exporters for service-level dashboards (with-monitoring profile) ----
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.19.1
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: cpp_api_postgres_exporter
     environment:
       # matches docker-compose.yml's postgres service (user/pass/db/port).
@@ -521,7 +504,7 @@ services:
   # it. Tied to with-replica (tiny footprint) — Prometheus scrapes it under
   # with-monitoring and tolerates a down target otherwise.
   postgres-replica-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.19.1
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: cpp_api_postgres_replica_exporter
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres_replica:5432/appdb?sslmode=disable"
@@ -535,7 +518,7 @@ services:
       - with-replica
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.86.0
+    image: oliver006/redis_exporter:v1.96.0
     container_name: cpp_api_redis_exporter
     environment:
       REDIS_ADDR: "redis://redis:6379"
@@ -552,10 +535,13 @@ services:
   # with-monitoring) made it start under with-monitoring alone and
   # crashloop against a Kafka that was never launched.
   kafka-exporter:
-    image: danielqsj/kafka-exporter:v1.9.0
+    image: danielqsj/kafka-exporter:v1.11.0
     container_name: cpp_api_kafka_exporter
     command:
       - '--kafka.server=kafka:9092'
+    depends_on:
+      kafka:
+        condition: service_healthy
     networks:
       - app-network
     restart: unless-stopped
@@ -591,7 +577,7 @@ services:
   # flows (confirm/reset/invite) are part of the core dev loop. If host
   # port 1025/8025 clashes with a local mail agent, add a profile here.
   mailpit:
-    image: axllent/mailpit:v1.30
+    image: axllent/mailpit:v1.33
     container_name: cpp_api_mailpit
     ports:
       - "1025:1025"   # SMTP
@@ -605,15 +591,15 @@ services:
       timeout: 3s
       retries: 5
 
-  # Jaeger for distributed tracing (optional)
+  # Jaeger for distributed tracing (optional). Jaeger v2 (OpenTelemetry
+  # Collector based): the default config is all-in-one with in-memory
+  # storage and OTLP always on, so v1's COLLECTOR_OTLP_ENABLED is gone.
   jaeger:
-    image: jaegertracing/all-in-one:1.76.0
+    image: jaegertracing/jaeger:2.22.0
     container_name: cpp_api_jaeger
     ports:
       - "16686:16686"  # UI
       - "4318:4318"    # OTLP HTTP
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
     networks:
       - app-network
     restart: unless-stopped
@@ -628,8 +614,6 @@ volumes:
   postgres_data:
   postgres_replica_data:
   redis_data:
-  zookeeper_data:
-  zookeeper_log:
-  kafka_data:
+  kafka_kraft_data:
   prometheus_data:
   grafana_data:

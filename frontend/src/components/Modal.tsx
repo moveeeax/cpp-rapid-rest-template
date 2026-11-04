@@ -1,4 +1,4 @@
-import { useCallback, useRef, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from 'react';
 
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 
@@ -24,8 +24,12 @@ interface ModalProps {
 export function Modal({ onClose, children, className = 'max-w-2xl', confirmClose }: ModalProps) {
   // Read the predicate through a ref so requestClose (and therefore the focus
   // trap's effect) does not re-subscribe on every parent render.
+  // Synced in a layout effect (not during render — react-hooks/refs): it runs
+  // after commit and before any user event can reach requestClose.
   const confirmRef = useRef(confirmClose);
-  confirmRef.current = confirmClose;
+  useLayoutEffect(() => {
+    confirmRef.current = confirmClose;
+  }, [confirmClose]);
 
   const requestClose = useCallback(() => {
     if (confirmRef.current && !confirmRef.current()) return;
