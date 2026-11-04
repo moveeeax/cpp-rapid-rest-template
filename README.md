@@ -331,7 +331,7 @@ Typical order:
 |---|---|
 | `make up-replica` | Postgres read replica |
 | `make up-sentinel` | Redis Sentinel (3 nodes) |
-| `make up-kafka` | Kafka + Zookeeper |
+| `make up-kafka` | Kafka (KRaft, single broker) |
 | `make up-worker` | Background-job worker |
 | `make up-monitoring` | Prometheus + Grafana + Jaeger |
 | `make frontend-up` | React SPA (built + served by nginx on :3001) |

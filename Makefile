@@ -67,7 +67,7 @@ up-replica:        ## + PostgreSQL streaming read replica
 up-sentinel:       ## + Redis Sentinel (3-node HA)
 	$(COMPOSE) --profile with-sentinel --env-file docker/.env.sentinel up -d --pull missing
 
-up-kafka:          ## + Kafka + Zookeeper
+up-kafka:          ## + Kafka (KRaft)
 	$(COMPOSE) --profile with-kafka --env-file docker/.env.kafka up -d --pull missing
 
 up-full:           ## Full stack (replica + sentinel + kafka)

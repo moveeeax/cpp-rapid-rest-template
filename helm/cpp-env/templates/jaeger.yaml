@@ -1,5 +1,5 @@
 {{- if .Values.jaeger.enabled }}
-# Jaeger all-in-one — per-env trace store + UI at jaeger.<env>. OTLP on :4318
+# Jaeger v2 all-in-one — per-env trace store + UI at jaeger.<env>. OTLP on :4318
 # (the app's tracing.otlpEndpoint). In-memory storage (ephemeral).
 apiVersion: apps/v1
 kind: Deployment
@@ -22,9 +22,8 @@ spec:
         kubernetes.io/arch: amd64
       containers:
         - name: jaeger
-          image: jaegertracing/all-in-one:1.76.0
-          env:
-            - { name: COLLECTOR_OTLP_ENABLED, value: "true" }
+          # Jaeger v2: default config = all-in-one, in-memory, OTLP on.
+          image: jaegertracing/jaeger:2.22.0
           ports:
             - { name: otlp-http, containerPort: 4318 }
             - { name: otlp-grpc, containerPort: 4317 }
