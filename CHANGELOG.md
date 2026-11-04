@@ -6,6 +6,32 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-11-04
+
+### Changed
+- Compose Kafka moved from Confluent 7.5 + ZooKeeper to `apache/kafka:4.4.0`
+  in KRaft mode (single combined broker/controller, new `kafka_kraft_data`
+  volume — the old ZooKeeper-era `kafka_data`/`zookeeper_*` volumes are no
+  longer used and can be removed with `docker volume rm`); helm `cpp-env`
+  Kafka 3.8 → 4.4. Jaeger moved to v2 (`jaegertracing/jaeger:2.22.0`, same
+  UI/OTLP ports). Grafana 11.6 → 13.3, Prometheus 3.15.1, mailpit 1.33,
+  postgres_exporter 0.20.1, redis_exporter 1.96.0, kafka_exporter 1.11.0.
+- Frontend image and CI build on Node 26 LTS (was EOL Node 20) and serve
+  from `nginxinc/nginx-unprivileged:1.30-alpine` (stable branch; 1.27 is out
+  of support). GitHub Actions bumped to current majors, still SHA-pinned
+  (checkout v7, cache v6, upload-artifact v7, download-artifact v8,
+  setup-node v7, build-push v7, login v4, setup-buildx v4,
+  ghaction-github-runtime v4, action-gh-release v3).
+
+### Security
+- Frontend dependencies upgraded to clear `npm audit` (31 advisories, 2
+  critical, down to 3 moderate in the dev-only `openapi-typescript` codegen
+  chain, which has no fixed release): react-router-dom 7.18 (open redirect,
+  GHSA-wrjc-x8rr-h8h6), zod 4.6 (GHSA-mrhx-c7xc-m3w5), vite 8, vitest 5,
+  @vitejs/plugin-react 6, eslint 10 with react-hooks 7 / react-refresh 0.5,
+  @hookform/resolvers 7, plus postcss/nanoid/source-map-js via the lockfile;
+  an npm `overrides` entry lifts eslint's minimatch to 11.
+
 ## [1.6.0] — 2026-08-23
 
 ### Changed
