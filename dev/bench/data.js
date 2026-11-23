@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795440877794,
+  "lastUpdate": 1795440880340,
   "repoUrl": "https://github.com/moveeeax/cpp-rapid-rest-template",
   "entries": {
     "Throughput": [
@@ -9645,6 +9645,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "idle RSS",
             "value": 4.2,
+            "unit": "MB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Michael Tarassov",
+            "username": "moveeeax",
+            "email": "michael@tarassov.me"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e5c4f0ffb41a26c18ab80b4e28875b812006ad4f",
+          "message": "ci(release): install Trivy from GitHub releases, get.trivy.dev is down (#70)",
+          "timestamp": "2026-11-04T08:17:39Z",
+          "url": "https://github.com/moveeeax/cpp-rapid-rest-template/commit/e5c4f0ffb41a26c18ab80b4e28875b812006ad4f"
+        },
+        "date": 1795440879809,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "healthz p50",
+            "value": 4.32,
+            "unit": "ms"
+          },
+          {
+            "name": "healthz p99",
+            "value": 13.15,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p50",
+            "value": 23.51,
+            "unit": "ms"
+          },
+          {
+            "name": "jobs p99",
+            "value": 49.27,
+            "unit": "ms"
+          },
+          {
+            "name": "runtime image size",
+            "value": 41.8,
+            "unit": "MB"
+          },
+          {
+            "name": "cold start to /ready",
+            "value": 989,
+            "unit": "ms"
+          },
+          {
+            "name": "idle RSS",
+            "value": 4.1,
             "unit": "MB"
           }
         ]
